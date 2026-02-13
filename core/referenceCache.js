@@ -72,6 +72,15 @@ export class ReferenceCache {
 
   lookupLandingId(name) { return this.idx.landings.get(n(name)) || ""; }
   lookupBoatId(name) { return this.idx.boats.get(n(name)) || ""; }
+  lookupBoatIdFuzzy(name) {
+    const q = n(name);
+    if (!q) return "";
+    if (this.idx.boats.has(q)) return this.idx.boats.get(q);
+    for (const [k, v] of this.idx.boats.entries()) {
+      if (k.includes(q) || q.includes(k)) return v;
+    }
+    return "";
+  }
   lookupLandingIdByBoatId(boatId) { return this.idx.boatToLanding.get(String(boatId || "")) || ""; }
   lookupTripTypeId(name) { return this.idx.tripTypes.get(n(name)) || ""; }
   lookupFishId(name) { return this.idx.fish.get(n(name)) || ""; }

@@ -43,15 +43,64 @@ function countsOnlyNoImage(scraped, normalized) {
   return fishCount >= 2 && narrativeLen < 180;
 }
 
-function parseBoatFromPage($, titleText = "") {
-  const body = $("body").text().replace(/\s+/g, " ");
-  const m = body.match(/From\s+([A-Za-z0-9 '&.-]+?)\s+Sportfishing/i);
-  if (m?.[1]) return m[1].trim();
+const BOAT_ALIASES = {
+  "rr3": "Red Rooster III",
+  "red rooster": "Red Rooster III",
+  "indy": "Independence",
+  "independence sportfishing": "Independence",
+  "new seaforth": "New Seaforth"
+};
 
-  const t = String(titleText || "");
+function normalizeBoatAlias(name = "") {
+  const key = n(name);
+  if (!key) return "";
+  for (const [alias, canonical] of Object.entries(BOAT_ALIASES)) {
+    if (key === alias || key.includes(alias)) return canonical;
+  }
+  return name.trim();
+}
+
+function parseBoatCandidates($, titleText = "", narrativeText = "") {
+  const body = $("body").text().replace(/\s+/g, " ");
+  const candidates = [];
+
+  const patterns = [
+    /From\s+([A-Za-z0-9 '&.-]+?)\s+Sportfishing/i,
+    /aboard\s+the\s+([A-Za-z0-9 '&.-]+?)(?:\s+out\s+of|\.|,|\s{2,}|$)/i,
+    /vessel\s*[:\-]\s*([A-Za-z0-9 '&.-]+?)(?:\.|,|\s{2,}|$)/i,
+    /boat\s*[:\-]\s*([A-Za-z0-9 '&.-]+?)(?:\.|,|\s{2,}|$)/i
+  ];
+
+  for (const p of patterns) {
+    const m1 = String(titleText || "").match(p);
+    if (m1?.[1]) candidates.push(m1[1].trim());
+    const m2 = String(narrativeText || "").match(p);
+    if (m2?.[1]) candidates.push(m2[1].trim());
+    const m3 = body.match(p);
+    if (m3?.[1]) candidates.push(m3[1].trim());
+  }
+
   const known = ["Red Rooster III", "Independence", "New Seaforth", "Seaforth"];
-  for (const k of known) if (t.toLowerCase().includes(k.toLowerCase())) return k;
-  return "";
+  const t = String(titleText || "").toLowerCase();
+  for (const k of known) if (t.includes(k.toLowerCase())) candidates.push(k);
+
+  return [...new Set(candidates.map(normalizeBoatAlias).filter(Boolean))];
+}
+
+function resolveBoatNameId(normalized, scraped) {
+  const candidates = [
+    normalized.boat_name,
+    normalized.boat,
+    scraped.boat_name,
+    ...(scraped.boat_candidates || [])
+  ].map((x) => normalizeBoatAlias(String(x || "").trim())).filter(Boolean);
+
+  for (const c of candidates) {
+    const id = referenceCache.lookupBoatId(c) || referenceCache.lookupBoatIdFuzzy(c);
+    if (id) return { boatName: c, boatId: id };
+  }
+
+  return { boatName: candidates[0] || "", boatId: "" };
 }
 
 function hasTrustedLandingId(normalized, options = {}) {
@@ -76,8 +125,7 @@ function resolveLandingId(normalized, scraped, boatNameId = "") {
     }
   }
 
-  const direct = referenceCache.lookupLandingId(normalized.landing_name || normalized.landing);
-  return direct || "1";
+  return referenceCache.lookupLandingId(normalized.landing_name || normalized.landing) || "";
 }
 
 function guessDateTime(scraped, normalized) {
@@ -123,7 +171,8 @@ async function fetchReport(url) {
   const narrative = $(".report_descript_data, .content").first().text().replace(/\s+/g, " ").trim();
   const h3 = $("h3").first().text().replace(/\s+/g, " ").trim();
   const raw_text = $("body").text().replace(/\s+/g, " ").trim();
-  const boat_name = parseBoatFromPage($, title);
+  const boat_candidates = parseBoatCandidates($, title, narrative);
+  const boat_name = boat_candidates[0] || "";
 
   const images = [];
   $("img").each((_, el) => {
@@ -132,7 +181,7 @@ async function fetchReport(url) {
     images.push(src.startsWith("http") ? src : `https://${src.replace(/^\/\//, "")}`);
   });
 
-  return { url, title, narrative, h3, raw_text, images, boat_name };
+  return { url, title, narrative, h3, raw_text, images, boat_name, boat_candidates };
 }
 
 (async () => {
@@ -166,7 +215,7 @@ async function fetchReport(url) {
       const normalized = await normalizeReportWithAI({ trip_name: scraped.title, report: scraped.narrative });
 
       normalized.images = scraped.images;
-      normalized.boat_name = normalized.boat_name || scraped.boat_name;
+      normalized.boat_name = normalizeBoatAlias(normalized.boat_name || normalized.boat || scraped.boat_name);
       normalized.trip_date_time = guessDateTime(scraped, normalized);
       normalized.fish = (normalized.fish || [])
         .map((f) => ({ ...f, fish_id: f.fish_id || referenceCache.lookupFishId(f.species), count: Number(f.count ?? f.fish_count ?? 0) }))
@@ -178,13 +227,34 @@ async function fetchReport(url) {
         continue;
       }
 
-      const boatNameId = referenceCache.lookupBoatId(normalized.boat_name || normalized.boat || scraped.boat_name);
+      const boatResolved = resolveBoatNameId(normalized, scraped);
+      const boatNameId = boatResolved.boatId;
+      normalized.boat_name = normalized.boat_name || boatResolved.boatName;
       const landingId = resolveLandingId(normalized, scraped, boatNameId);
       const tripTypeId = referenceCache.lookupTripTypeId(normalized.trip_type) || "0";
       const userId = String(referenceCache.user?.id || process.env.REPORTER_USER_ID || "");
 
-      if (!normalized.trip_date_time) throw new Error("Missing/invalid trip_date_time");
-      if (!landingId) throw new Error("Missing/invalid landing_id");
+      // DB-backed gate strategy
+      if (!normalized.trip_date_time) {
+        console.log(`Skipped ${url}: NO_VALID_DATETIME`);
+        processed.add(url);
+        continue;
+      }
+      if (!boatNameId && !landingId) {
+        console.log(`Skipped ${url}: NO_BOAT_OR_LANDING_MATCH`);
+        processed.add(url);
+        continue;
+      }
+      if (!landingId) {
+        console.log(`Skipped ${url}: NO_LANDING_MATCH`);
+        processed.add(url);
+        continue;
+      }
+      if ((normalized.fish || []).length === 0) {
+        console.log(`Skipped ${url}: NO_MAPPED_FISH`);
+        processed.add(url);
+        continue;
+      }
       if (!userId) throw new Error("Missing user_id");
 
       const form = await buildCreateTripPayload(normalized, {
