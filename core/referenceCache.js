@@ -12,11 +12,13 @@ const {
   INGEST_EMAIL,
   INGEST_PASSWORD,
   LOCATION_ID,
-  BACKCHECK_PROD
+  BACKCHECK_PROD,
+  REF_SOURCE
 } = process.env;
 
 const OUT_DIR = path.resolve("runs", "dev_output");
 const BACKCHECK_PATH = path.join(OUT_DIR, "reference_backcheck.json");
+const REF_CACHE_PATH = path.join(OUT_DIR, "reference_snapshot_cache.json");
 
 function n(s) {
   return String(s || "").toLowerCase().replace(/&/g, "").replace(/[^a-z0-9]+/g, " ").trim();
@@ -28,28 +30,35 @@ function toMap(items = [], nameKey, idKey) {
   return m;
 }
 
-function diffMaps(devMap, prodMap, label) {
+function diffMaps(aMap, bMap, label) {
   const mismatches = [];
-  const allKeys = new Set([...devMap.keys(), ...prodMap.keys()]);
+  const allKeys = new Set([...aMap.keys(), ...bMap.keys()]);
   for (const key of allKeys) {
-    const dev = devMap.get(key) || "";
-    const prod = prodMap.get(key) || "";
-    if (dev !== prod) mismatches.push({ key, dev, prod });
+    const a = aMap.get(key) || "";
+    const b = bMap.get(key) || "";
+    if (a !== b) mismatches.push({ key, a, b });
   }
   return { label, total: allKeys.size, mismatches };
 }
 
-async function fetchReferenceSnapshot(baseUrl) {
+async function login(baseUrl) {
   const headers = { "Content-Type": "application/json", "x-admin-api-key": ADMIN_API_KEY };
-  const req = { timeout: 15000, headers };
-  const login = await axios.post(`${baseUrl}/api/admin/login`, {
+  const res = await axios.post(`${baseUrl}/api/admin/login`, {
     email: INGEST_EMAIL,
     password: INGEST_PASSWORD
-  }, req);
+  }, { timeout: 15000, headers });
+  return {
+    token: res.data?.data?.token,
+    user: res.data?.data?.user ?? null
+  };
+}
 
-  const token = login.data?.data?.token;
-  const user = login.data?.data?.user ?? null;
-  const authHeaders = { ...headers, Authorization: `Bearer ${token}` };
+async function fetchReferenceData(baseUrl, token) {
+  const headers = {
+    "Content-Type": "application/json",
+    "x-admin-api-key": ADMIN_API_KEY,
+    Authorization: `Bearer ${token}`
+  };
 
   const live = await axios.post(`${baseUrl}/api/v2/getAllLiveDataTypes`, {
     interval_type: "",
@@ -58,17 +67,17 @@ async function fetchReferenceSnapshot(baseUrl) {
     exclude_boat_id: "",
     exclude_trip_type: "",
     exclude_fish_type_id: ""
-  }, { timeout: 15000, headers: authHeaders });
+  }, { timeout: 15000, headers });
 
   const fish = await axios.post(`${baseUrl}/api/v1/getFishTypes`, {
     location_id: Number(LOCATION_ID || 1)
-  }, { timeout: 15000, headers: authHeaders });
+  }, { timeout: 15000, headers });
 
   let boatToLandingPairs = [];
   try {
     const filterData = await axios.post(`${baseUrl}/api/v2/getFilterDataTypes`, {
       location_id: Number(LOCATION_ID || 1)
-    }, { timeout: 15000, headers: authHeaders });
+    }, { timeout: 15000, headers });
 
     for (const landing of (filterData.data?.data?.landings || [])) {
       const landingId = String(landing?.landing_id || "");
@@ -82,8 +91,6 @@ async function fetchReferenceSnapshot(baseUrl) {
   }
 
   return {
-    token,
-    user,
     landingTypes: live.data?.data?.landing_types || [],
     boatNames: live.data?.data?.boat_names || [],
     tripTypes: live.data?.data?.trip_types || [],
@@ -92,26 +99,58 @@ async function fetchReferenceSnapshot(baseUrl) {
   };
 }
 
+async function fetchReferenceSnapshot(baseUrl) {
+  const auth = await login(baseUrl);
+  const refs = await fetchReferenceData(baseUrl, auth.token);
+  return { ...auth, ...refs };
+}
+
+async function loadRefSnapshotCache() {
+  try {
+    const raw = await fs.readFile(REF_CACHE_PATH, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function saveRefSnapshotCache(snapshot, baseUrl) {
+  try {
+    await fs.mkdir(OUT_DIR, { recursive: true });
+    await fs.writeFile(REF_CACHE_PATH, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      source_base_url: baseUrl,
+      snapshot
+    }, null, 2));
+  } catch {
+    // non-fatal
+  }
+}
+
 export class ReferenceCache {
-  token = null;
+  token = null; // dev token (used for pushes)
   user = null;
   loaded = false;
   idx = { landings: new Map(), boats: new Map(), tripTypes: new Map(), fish: new Map(), boatToLanding: new Map() };
 
   async ensureAuth() {
     if (this.token) return this.token;
-    const snap = await fetchReferenceSnapshot(API_BASE_URL);
-    this.token = snap.token;
-    this.user = snap.user;
+    const devAuth = await login(API_BASE_URL);
+    this.token = devAuth.token;
+    this.user = devAuth.user;
     return this.token;
   }
 
-  async runProdBackcheck(devSnap) {
+  async maybeBackcheck(refSnap) {
     if (String(BACKCHECK_PROD || "").toLowerCase() !== "true") return;
     if (!PROD_API_BASE_URL) return;
 
+    const devBase = API_BASE_URL;
+    const prodBase = PROD_API_BASE_URL;
+
     try {
-      const prodSnap = await fetchReferenceSnapshot(PROD_API_BASE_URL);
+      const devSnap = await fetchReferenceSnapshot(devBase);
+      const prodSnap = refSnap._sourceBase === prodBase ? refSnap : await fetchReferenceSnapshot(prodBase);
 
       const reports = [
         diffMaps(toMap(devSnap.landingTypes, "landing_name", "landing_id"), toMap(prodSnap.landingTypes, "landing_name", "landing_id"), "landing_types"),
@@ -124,37 +163,60 @@ export class ReferenceCache {
       const out = {
         timestamp: new Date().toISOString(),
         location_id: String(LOCATION_ID || "1"),
-        dev_base_url: API_BASE_URL,
-        prod_base_url: PROD_API_BASE_URL,
+        dev_base_url: devBase,
+        prod_base_url: prodBase,
         summary,
         details: reports
       };
 
       await fs.mkdir(OUT_DIR, { recursive: true });
       await fs.writeFile(BACKCHECK_PATH, JSON.stringify(out, null, 2));
-
       const totalMismatch = summary.reduce((a, b) => a + b.mismatches, 0);
-      console.log(`[backcheck] prod compare done for location ${LOCATION_ID || "1"}; mismatches=${totalMismatch}; report=${BACKCHECK_PATH}`);
+      console.log(`[backcheck] dev vs prod compare done; mismatches=${totalMismatch}; report=${BACKCHECK_PATH}`);
     } catch (err) {
-      console.warn(`[backcheck] prod compare failed: ${err.message}`);
+      console.warn(`[backcheck] compare failed: ${err.message}`);
     }
   }
 
   async ensureLoaded() {
     if (this.loaded) return;
 
-    const devSnap = await fetchReferenceSnapshot(API_BASE_URL);
-    this.token = devSnap.token;
-    this.user = devSnap.user;
+    // Always auth against DEV for pushes
+    await this.ensureAuth();
 
-    for (const it of devSnap.landingTypes) this.idx.landings.set(n(it.landing_name), String(it.landing_id));
-    for (const it of devSnap.boatNames) this.idx.boats.set(n(it.boat_name), String(it.boat_id));
-    for (const it of devSnap.tripTypes) this.idx.tripTypes.set(n(it.trip_type), String(it.trip_id));
-    for (const it of devSnap.fishTypes) this.idx.fish.set(n(it.fish_type), String(it.fish_id));
-    for (const p of devSnap.boatToLandingPairs) this.idx.boatToLanding.set(String(p.boat_id), String(p.landing_id));
+    // Refs source: prod (default for your workflow) or dev
+    const refSource = String(REF_SOURCE || "prod").toLowerCase();
+    const refBase = refSource === "dev" ? API_BASE_URL : (PROD_API_BASE_URL || API_BASE_URL);
 
-    await this.runProdBackcheck(devSnap);
+    let refSnap;
+    try {
+      refSnap = await fetchReferenceSnapshot(refBase);
+      await saveRefSnapshotCache(refSnap, refBase);
+    } catch (err) {
+      if (refSource === "prod") {
+        const cached = await loadRefSnapshotCache();
+        if (cached?.snapshot) {
+          refSnap = cached.snapshot;
+          console.warn(`[refs] prod refs unavailable (${err.message}); using cached snapshot from ${cached.timestamp}`);
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
 
+    refSnap._sourceBase = refBase;
+
+    for (const it of refSnap.landingTypes) this.idx.landings.set(n(it.landing_name), String(it.landing_id));
+    for (const it of refSnap.boatNames) this.idx.boats.set(n(it.boat_name), String(it.boat_id));
+    for (const it of refSnap.tripTypes) this.idx.tripTypes.set(n(it.trip_type), String(it.trip_id));
+    for (const it of refSnap.fishTypes) this.idx.fish.set(n(it.fish_type), String(it.fish_id));
+    for (const p of refSnap.boatToLandingPairs) this.idx.boatToLanding.set(String(p.boat_id), String(p.landing_id));
+
+    await this.maybeBackcheck(refSnap);
+
+    console.log(`[refs] loaded from ${refBase} | pushes target ${API_BASE_URL}`);
     this.loaded = true;
   }
 
