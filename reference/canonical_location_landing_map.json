@@ -176,8 +176,17 @@
       },
       "1": {
         "location_name": "San Diego",
-        "landings": [],
-        "notes": "Populate from admin UI when available; intentionally left empty instead of guessing IDs."
+        "landings": [
+          { "landing_id": 1, "landing_name": "Seaforth" },
+          { "landing_id": 2, "landing_name": "Fisherman’s" },
+          { "landing_id": 3, "landing_name": "Point Loma Sport" },
+          { "landing_id": 4, "landing_name": "H&M Landing" },
+          { "landing_id": 5, "landing_name": "Helgrens" },
+          { "landing_id": 6, "landing_name": "Oceanside Seacenter" },
+          { "landing_id": 30, "landing_name": "Private Charters" },
+          { "landing_id": 150, "landing_name": "Ironclad Sportfishing" }
+        ],
+        "notes": "From user-provided landing_types snapshot (fishes_count omitted in canonical map)."
       }
     }
   }
