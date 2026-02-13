@@ -12,7 +12,8 @@ dotenv.config();
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 const ACCEPTED_PATH = path.resolve("runs", "dev_output", "accepted.json");
 const STATE_DIR = path.resolve("state");
-const PROCESSED_PATH = path.join(STATE_DIR, "processed_long_range.json");
+const PROCESSED_PATH = path.join(STATE_DIR, "processed_reports.json");
+const CANONICAL_MAP_PATH = path.resolve("reference", "canonical_location_landing_map.json");
 
 const BOAT_LANDING_HINTS = {
   "red rooster iii": "h m landing",
@@ -164,6 +165,20 @@ async function saveProcessedSet(set) {
   await fs.writeFile(PROCESSED_PATH, JSON.stringify([...set], null, 2));
 }
 
+async function loadCanonicalLocationMap() {
+  const raw = await fs.readFile(CANONICAL_MAP_PATH, "utf8");
+  const json = JSON.parse(raw);
+  const locationByLanding = new Map();
+  for (const region of Object.values(json.regions || {})) {
+    for (const [locationId, payload] of Object.entries(region || {})) {
+      for (const l of (payload?.landings || [])) {
+        locationByLanding.set(String(l.landing_id), String(locationId));
+      }
+    }
+  }
+  return { locationByLanding };
+}
+
 async function fetchReport(url) {
   const res = await axios.get(url, { timeout: 10000 });
   const $ = cheerio.load(res.data);
@@ -188,13 +203,14 @@ async function fetchReport(url) {
   const accepted = JSON.parse(await fs.readFile(ACCEPTED_PATH, "utf8"));
   await referenceCache.ensureLoaded();
   const processed = await loadProcessedSet();
+  const canonical = await loadCanonicalLocationMap();
 
   const links = accepted
     .map((x) => x.link || x.url)
-    .filter((u) => u && u.includes("longrangesportfishing.net"))
+    .filter((u) => u)
     .filter((u) => !processed.has(u));
 
-  console.log(`Pushing ${links.length} new long-range reports${DRY_RUN ? " (dry run)" : ""}`);
+  console.log(`Pushing ${links.length} new reports${DRY_RUN ? " (dry run)" : ""}`);
 
   for (const url of links) {
     try {
@@ -233,6 +249,7 @@ async function fetchReport(url) {
       const landingId = resolveLandingId(normalized, scraped, boatNameId);
       const tripTypeId = referenceCache.lookupTripTypeId(normalized.trip_type) || "0";
       const userId = String(referenceCache.user?.id || process.env.REPORTER_USER_ID || "");
+      const locationId = canonical.locationByLanding.get(String(landingId || "")) || "";
 
       // DB-backed gate strategy
       if (!normalized.trip_date_time) {
@@ -255,10 +272,15 @@ async function fetchReport(url) {
         processed.add(url);
         continue;
       }
+      if (!locationId) {
+        console.log(`Skipped ${url}: LANDING_NOT_IN_CANONICAL_MAP`);
+        processed.add(url);
+        continue;
+      }
       if (!userId) throw new Error("Missing user_id");
 
       const form = await buildCreateTripPayload(normalized, {
-        locationId: process.env.LOCATION_ID || "1",
+        locationId,
         userId,
         landingId,
         boatNameId,
@@ -269,7 +291,7 @@ async function fetchReport(url) {
       });
 
       if (DRY_RUN) {
-        console.log({ url, landingId, boatNameId, tripTypeId, trip_date_time: normalized.trip_date_time, pictures: normalized.images.length });
+        console.log({ url, locationId, landingId, boatNameId, tripTypeId, trip_date_time: normalized.trip_date_time, pictures: normalized.images.length });
         continue;
       }
 
