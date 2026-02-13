@@ -1,0 +1,26 @@
+[
+  {
+    "location_id": 1,
+    "location_name": "San Diego",
+    "lat": 32.7157,
+    "lon": -117.1611,
+    "timezone": "America/Los_Angeles",
+    "noaa_tide_station_id": "9410170"
+  },
+  {
+    "location_id": 6,
+    "location_name": "Dana Point",
+    "lat": 33.4669,
+    "lon": -117.6981,
+    "timezone": "America/Los_Angeles",
+    "noaa_tide_station_id": "9419490"
+  },
+  {
+    "location_id": 16,
+    "location_name": "San Francisco",
+    "lat": 37.7749,
+    "lon": -122.4194,
+    "timezone": "America/Los_Angeles",
+    "noaa_tide_station_id": "9414290"
+  }
+]
