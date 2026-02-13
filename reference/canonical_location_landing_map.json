@@ -1,0 +1,184 @@
+{
+  "version": "2026-02-13",
+  "source": "user-verified admin UI screenshots",
+  "regions": {
+    "bay_area": {
+      "4": {
+        "location_name": "Berkeley",
+        "landings": [
+          { "landing_id": 8, "landing_name": "California Dawn Sportfishing" },
+          { "landing_id": 16, "landing_name": "Happy Hooker Sportfishing" },
+          { "landing_id": 27, "landing_name": "Gatherer Outfits" },
+          { "landing_id": 32, "landing_name": "Private Charters" }
+        ]
+      },
+      "5": {
+        "location_name": "Bodega Bay",
+        "landings": [
+          { "landing_id": 24, "landing_name": "Bodega Bay Sportfishing Center" },
+          { "landing_id": 45, "landing_name": "Private Charters" }
+        ]
+      },
+      "7": {
+        "location_name": "Emeryville",
+        "landings": [
+          { "landing_id": 18, "landing_name": "Fish Emeryville" },
+          { "landing_id": 39, "landing_name": "Private Charters" }
+        ]
+      },
+      "8": {
+        "location_name": "Half Moon Bay",
+        "landings": [
+          { "landing_id": 19, "landing_name": "Half Moon Bay Sportfishin" },
+          { "landing_id": 40, "landing_name": "Private Charters" }
+        ]
+      },
+      "16": {
+        "location_name": "San Francisco",
+        "landings": [
+          { "landing_id": 9, "landing_name": "Argo Sportfishing" },
+          { "landing_id": 11, "landing_name": "Bass Tub Sportfishing" },
+          { "landing_id": 12, "landing_name": "Lovely Martha Sportfishing" },
+          { "landing_id": 33, "landing_name": "Private Charters" }
+        ]
+      }
+    },
+    "central_coast": {
+      "3": {
+        "location_name": "Avila Beach",
+        "landings": [
+          { "landing_id": 7, "landing_name": "Patriot Sportfishing" },
+          { "landing_id": 31, "landing_name": "Private Charters" }
+        ]
+      },
+      "11": {
+        "location_name": "Monterey",
+        "landings": [
+          { "landing_id": 28, "landing_name": "Chriss Fishing Trips" },
+          { "landing_id": 47, "landing_name": "Private Charters" }
+        ]
+      },
+      "12": {
+        "location_name": "Morro Bay",
+        "landings": [
+          { "landing_id": 22, "landing_name": "Morro Bay Landing" },
+          { "landing_id": 29, "landing_name": "Virgs Landing" },
+          { "landing_id": 43, "landing_name": "Private Charters" }
+        ]
+      },
+      "18": {
+        "location_name": "Santa Cruz",
+        "landings": [
+          { "landing_id": 14, "landing_name": "Go Fish Santa Cruz" },
+          { "landing_id": 36, "landing_name": "Private Charters" },
+          { "landing_id": 152, "landing_name": "Santa Cruz Kayak Fishing" }
+        ]
+      }
+    },
+    "channel_coast": {
+      "14": {
+        "location_name": "Oxnard",
+        "landings": [
+          { "landing_id": 25, "landing_name": "Channel Islands Sportfishing" },
+          { "landing_id": 26, "landing_name": "Hooks Landing" },
+          { "landing_id": 46, "landing_name": "Private Charters" }
+        ]
+      },
+      "36": {
+        "location_name": "Santa Barbara",
+        "landings": [
+          { "landing_id": 67, "landing_name": "Private Charters" }
+        ]
+      },
+      "19": {
+        "location_name": "Ventura County",
+        "landings": [
+          { "landing_id": 15, "landing_name": "Ventura Harbor Sportfishing" },
+          { "landing_id": 37, "landing_name": "Private Charters" }
+        ]
+      }
+    },
+    "north_coast": {
+      "61": {
+        "location_name": "Crescent City",
+        "landings": [
+          { "landing_id": 94, "landing_name": "Private Charters" }
+        ]
+      },
+      "62": {
+        "location_name": "Eureka",
+        "landings": [
+          { "landing_id": 95, "landing_name": "Private Charters" }
+        ]
+      },
+      "63": {
+        "location_name": "Fort Bragg",
+        "landings": [
+          { "landing_id": 96, "landing_name": "Private Charters" }
+        ]
+      }
+    },
+    "socal": {
+      "6": {
+        "location_name": "Dana Point",
+        "landings": [
+          { "landing_id": 17, "landing_name": "Dana Wharf Sportfishing" },
+          { "landing_id": 38, "landing_name": "Private Charters" }
+        ]
+      },
+      "9": {
+        "location_name": "Long Beach",
+        "landings": [
+          { "landing_id": 20, "landing_name": "Long Beach Sportfishing" },
+          { "landing_id": 41, "landing_name": "Private Charters" }
+        ]
+      },
+      "10": {
+        "location_name": "Marina Del Rey",
+        "landings": [
+          { "landing_id": 21, "landing_name": "Marina Del Rey" },
+          { "landing_id": 42, "landing_name": "Private Charters" }
+        ]
+      },
+      "13": {
+        "location_name": "Newport Beach",
+        "landings": [
+          { "landing_id": 23, "landing_name": "Davey's Locker" },
+          { "landing_id": 44, "landing_name": "Private Charters" }
+        ]
+      },
+      "28": {
+        "location_name": "Oceanside",
+        "landings": [
+          { "landing_id": 56, "landing_name": "Private Charters" }
+        ]
+      },
+      "15": {
+        "location_name": "Redondo Beach",
+        "landings": [
+          { "landing_id": 10, "landing_name": "Redondo Beach Fish Counts" },
+          { "landing_id": 34, "landing_name": "Private Charters" }
+        ]
+      },
+      "17": {
+        "location_name": "San Pedro",
+        "landings": [
+          { "landing_id": 13, "landing_name": "22nd Street Landing" },
+          { "landing_id": 35, "landing_name": "Private Charters" }
+        ]
+      },
+      "22": {
+        "location_name": "Santa Monica",
+        "landings": [
+          { "landing_id": 50, "landing_name": "Shoo Fly" },
+          { "landing_id": 88, "landing_name": "Private Charters" }
+        ]
+      },
+      "1": {
+        "location_name": "San Diego",
+        "landings": [],
+        "notes": "Populate from admin UI when available; intentionally left empty instead of guessing IDs."
+      }
+    }
+  }
+}
