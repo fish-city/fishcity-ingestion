@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 
 const URL = "https://eldorado.fishingreservations.net/sales/";
+const BOOKING_BASE = "https://eldorado.fishingreservations.net/sales/user.php?trip_id=";
 const OUT_DIR = path.resolve("runs", "dev_output");
 const STATE_DIR = path.resolve("state");
 const SNAPSHOT_PATH = path.join(OUT_DIR, "eldorado_schedule_snapshot.json");
@@ -102,6 +103,7 @@ async function fetchTrips() {
       partner: "eldorado",
       source_url: URL,
       trip_id: String(tripId),
+      booking_url: `${BOOKING_BASE}${tripId}`,
       boat_name,
       trip_name,
       departure_text: depart,
