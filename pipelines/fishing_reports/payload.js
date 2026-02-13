@@ -26,7 +26,7 @@ export async function buildCreateTripPayload(normalizedReport, options = {}) {
   form.append("location_id", String(options.locationId ?? normalizedReport.location_id ?? ""));
   form.append("trip_date_time", String(options.tripDateTime ?? normalizedReport.trip_date_time ?? ""));
   form.append("user_id", String(options.userId ?? normalizedReport.user_id ?? ""));
-  form.append("landing_id", String(options.landingId ?? normalizedReport.landing_id ?? "1"));
+  form.append("landing_id", String(options.landingId ?? normalizedReport.landing_id ?? ""));
   form.append("conditions", String(options.conditions ?? normalizedReport.conditions ?? "3"));
   form.append("share_catch", String(options.shareCatch ?? normalizedReport.share_catch ?? "1"));
 
