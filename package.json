@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "ingest:sd": "node pipelines/fishing_reports/ingest.js",
+    "orchestrate:sd": "node pipelines/fishing_reports/orchestrator.js",
     "push:sd": "node pipelines/fishing_reports/push.js",
     "weather:preview": "node pipelines/weather/run.js",
     "partner:eldorado": "node pipelines/partner_schedules/eldorado_ingest.js",
