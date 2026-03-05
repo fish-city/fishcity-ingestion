@@ -1,29 +1,48 @@
-# fishcity-ingestion
+# Fish City Ingestion
 
-## Ingestion Run Orchestrator (FCC-34 v1)
+## FCC-41 End-to-End Validation Harness (Staging)
 
-Entrypoint:
+Deterministic fixture-based validation for three staging-critical paths:
+
+1. **Reports ingest parsing** (link extraction contract)
+2. **NOAA/weather payload generation** (shape/count contract in dry-run)
+3. **AI normalization contract path** (Ollama response parsing + schema validation)
+
+The harness runs fully in dry-run mode with local fixtures and does not push any data.
+
+### Run (single command)
 
 ```bash
-npm run orchestrate:sd -- --run-id fcc34-2026-03-05T0803
+./scripts/run_e2e_validation.sh
 ```
 
-The orchestrator executes stages in this order:
+Equivalent npm command:
 
-1. `snapshot`
-2. `diff`
-3. `rules`
-4. `push`
+```bash
+npm run validate:e2e:staging
+```
 
-### Runtime behavior
+### PASS/FAIL output
 
-- `runId` is propagated to all stages via context and `INGESTION_RUN_ID` env var.
-- Stage timing metrics are logged as JSON events (`stage_started`, `stage_completed`, `run_completed`).
-- Idempotency scaffold persists run states to `state/ingestion_orchestrator_runs.json`.
-  - Duplicate `runId` executions are skipped by default.
-  - Use `--force true` to re-run an existing `runId`.
+The script prints component-level checks and an overall status:
 
-### Notes
+- `PASS` => all required checks passed
+- `FAIL` => one or more required checks failed
+- `ollama-smoke-gate` is **non-fatal** and reports explicit availability status
 
-- `diff` and `rules` are currently scaffold stages and emit metrics/logging for orchestration wiring.
-- `snapshot` and `push` execute existing fishing reports scripts.
+### Local vs staging usage
+
+- **Local dev**: run directly before opening PRs touching ingest/weather/AI normalization.
+- **Staging validation**: run on staging worker/host to verify deterministic contract paths after deploy.
+
+Optional environment variable:
+
+- `OLLAMA_BASE_URL` (default: `http://127.0.0.1:11434`) for smoke gate probe.
+
+### Fixtures
+
+Fixture inputs used by the harness live under:
+
+- `tests/fixtures/e2e/ingest_index_sample.html`
+- `tests/fixtures/e2e/location_sample.json`
+- `tests/fixtures/e2e/ollama_response_valid.json`

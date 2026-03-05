@@ -10,6 +10,8 @@
     "weather:preview": "node pipelines/weather/run.js",
     "partner:eldorado": "node pipelines/partner_schedules/eldorado_ingest.js",
     "partner:elpatron": "node pipelines/partner_schedules/elpatron_ingest.js",
+    "replay:backfill": "node scripts/backfill_replay.mjs",
+    "validate:e2e:staging": "node scripts/e2e_validation_harness.mjs",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
