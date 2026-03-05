@@ -1,30 +1,29 @@
-import OpenAI from "openai";
 import dotenv from "dotenv";
+import { AI_PROVIDERS, getAIConfig } from "./ai/config.js";
+import { normalizeWithOllama } from "./ai/providers/ollama/adapter.js";
+import { normalizeWithOpenAI } from "./ai/providers/openai/adapter.js";
 
 dotenv.config();
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 export async function normalizeReportWithAI(raw) {
-  const prompt = `You are a fishing report structuring assistant. Return ONLY JSON with keys:
-trip_name, trip_date_time, landing_name, boat_name, trip_type, anglers, fish, report_text.
-fish must be array of {species, count}. Unknown => null/empty.
+  const config = getAIConfig();
 
-Title:\n${raw.trip_name || ""}\n\nNarrative:\n${raw.report || ""}`;
+  if (config.provider === AI_PROVIDERS.OLLAMA) {
+    return normalizeWithOllama(raw, config.ollama);
+  }
 
-  const response = await client.responses.create({
-    model: "gpt-5.2-chat-latest",
-    reasoning: { effort: "medium" },
-    input: [
-      { role: "system", content: "Return only valid JSON." },
-      { role: "user", content: prompt }
-    ]
-  });
+  if (config.provider === AI_PROVIDERS.OPENAI) {
+    return normalizeWithOpenAI(raw);
+  }
 
-  const out = Array.isArray(response.output_text)
-    ? response.output_text.join("\n")
-    : response.output_text;
+  // local-first strategy: try Ollama first, then OpenAI fallback.
+  try {
+    return await normalizeWithOllama(raw, config.ollama);
+  } catch (error) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw error;
+    }
 
-  if (!out) throw new Error("AI normalizer returned no content");
-  return JSON.parse(out);
+    return normalizeWithOpenAI(raw);
+  }
 }
