@@ -3,21 +3,11 @@ import * as cheerio from "cheerio";
 import fs from "fs/promises";
 import path from "path";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
 import { normalizeReportWithAI } from "../../core/aiNormalizer.js";
 import { referenceCache } from "../../core/referenceCache.js";
 import { buildCreateTripPayload } from "./payload.js";
-import {
-  appendDiffEvent,
-  buildDiffEvent,
-  buildTripCandidateSnapshot,
-  loadSnapshotState,
-  saveSnapshotState
-} from "../../core/events/diffEvents.js";
-import {
-  appendNotificationPreview,
-  evaluateRules,
-  loadNotificationRules
-} from "../../core/events/notificationRules.js";
+import { getRecoveryConfig, isCooldownActive, markPushSuccess, recordPushFailure } from "./recovery.js";
 
 dotenv.config();
 
@@ -25,6 +15,8 @@ const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 const ACCEPTED_PATH = path.resolve("runs", "dev_output", "accepted.json");
 const STATE_DIR = path.resolve("state");
 const PROCESSED_PATH = path.join(STATE_DIR, "processed_reports.json");
+const RECOVERY_STATE_PATH = path.join(STATE_DIR, "push_recovery_state.json");
+const DEAD_LETTER_PATH = path.join(STATE_DIR, "dead_letter_reports.json");
 const CANONICAL_MAP_PATH = path.resolve("reference", "canonical_location_landing_map.json");
 
 const BOAT_LANDING_HINTS = {
@@ -33,6 +25,14 @@ const BOAT_LANDING_HINTS = {
   "new seaforth": "seaforth",
   "seaforth": "seaforth"
 };
+
+function logEvent(event, data = {}) {
+  console.log(JSON.stringify({ level: "info", event, ...data }));
+}
+
+function logError(event, data = {}) {
+  console.error(JSON.stringify({ level: "error", event, ...data }));
+}
 
 function n(s) {
   return String(s || "")
@@ -154,7 +154,7 @@ function guessDateTime(scraped, normalized) {
 
   const m3 = String(scraped.raw_text || "").match(/([A-Za-z]+),\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})/);
   if (m3) {
-    const mmMap = { january:"01", february:"02", march:"03", april:"04", may:"05", june:"06", july:"07", august:"08", september:"09", october:"10", november:"11", december:"12" };
+    const mmMap = { january: "01", february: "02", march: "03", april: "04", may: "05", june: "06", july: "07", august: "08", september: "09", october: "10", november: "11", december: "12" };
     const mm = mmMap[String(m3[2]).toLowerCase()];
     if (mm) return `${m3[4]}-${mm}-${String(m3[3]).padStart(2, "0")} 08:00:00`;
   }
@@ -162,19 +162,41 @@ function guessDateTime(scraped, normalized) {
   return "";
 }
 
-async function loadProcessedSet() {
+async function readJsonOrDefault(filePath, fallback) {
   try {
-    const raw = await fs.readFile(PROCESSED_PATH, "utf8");
-    const arr = JSON.parse(raw);
-    return new Set(Array.isArray(arr) ? arr : []);
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw);
   } catch {
-    return new Set();
+    return fallback;
   }
 }
 
+async function writeJson(filePath, payload) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, JSON.stringify(payload, null, 2));
+}
+
+async function loadProcessedSet() {
+  const arr = await readJsonOrDefault(PROCESSED_PATH, []);
+  return new Set(Array.isArray(arr) ? arr : []);
+}
+
 async function saveProcessedSet(set) {
-  await fs.mkdir(STATE_DIR, { recursive: true });
-  await fs.writeFile(PROCESSED_PATH, JSON.stringify([...set], null, 2));
+  await writeJson(PROCESSED_PATH, [...set]);
+}
+
+async function loadRecoveryState() {
+  return readJsonOrDefault(RECOVERY_STATE_PATH, {});
+}
+
+async function saveRecoveryState(state) {
+  await writeJson(RECOVERY_STATE_PATH, state || {});
+}
+
+async function appendDeadLetter(entry) {
+  const existing = await readJsonOrDefault(DEAD_LETTER_PATH, []);
+  existing.push(entry);
+  await writeJson(DEAD_LETTER_PATH, existing);
 }
 
 async function loadCanonicalLocationMap() {
@@ -211,34 +233,49 @@ async function fetchReport(url) {
   return { url, title, narrative, h3, raw_text, images, boat_name, boat_candidates };
 }
 
-(async () => {
+export async function runPushPipeline() {
   const accepted = JSON.parse(await fs.readFile(ACCEPTED_PATH, "utf8"));
   await referenceCache.ensureLoaded();
   const processed = await loadProcessedSet();
+  let recoveryState = await loadRecoveryState();
+  const recoveryConfig = getRecoveryConfig(process.env);
   const canonical = await loadCanonicalLocationMap();
-  const snapshotState = await loadSnapshotState();
-  const notificationRules = await loadNotificationRules();
 
   const links = accepted
     .map((x) => x.link || x.url)
     .filter((u) => u)
     .filter((u) => !processed.has(u));
 
-  console.log(`Pushing ${links.length} new reports${DRY_RUN ? " (dry run)" : ""}`);
+  logEvent("push_run_started", { totalLinks: links.length, dryRun: DRY_RUN, recoveryConfig });
 
   for (const url of links) {
+    const prior = recoveryState[url];
+    if (isCooldownActive(prior)) {
+      logEvent("push_skipped_cooldown", {
+        url,
+        retryCount: Number(prior.retryCount || 0),
+        nextAttemptAt: new Date(prior.nextAttemptAt).toISOString(),
+        terminalState: "cooldown_active"
+      });
+      continue;
+    }
+
+    const attempt = Number(prior?.retryCount || 0) + 1;
+    logEvent("push_attempt_started", { url, attempt, retryCount: Number(prior?.retryCount || 0) });
+
     try {
       const scraped = await fetchReport(url);
 
-      // pre-gate to save AI tokens
       if ((scraped.images || []).length === 0) {
-        console.log(`Skipped ${url}: NO_IMAGE`);
+        logEvent("push_terminal_skip", { url, reason: "NO_IMAGE", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
       if (isBoatWork(scraped)) {
-        console.log(`Skipped ${url}: BOAT_WORK`);
+        logEvent("push_terminal_skip", { url, reason: "BOAT_WORK", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
 
@@ -252,8 +289,9 @@ async function fetchReport(url) {
         .filter((f) => f.fish_id && Number(f.count) > 0);
 
       if (countsOnlyNoImage(scraped, normalized)) {
-        console.log(`Skipped ${url}: COUNTS_ONLY_NO_IMAGE`);
+        logEvent("push_terminal_skip", { url, reason: "COUNTS_ONLY_NO_IMAGE", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
 
@@ -265,30 +303,34 @@ async function fetchReport(url) {
       const userId = String(referenceCache.user?.id || process.env.REPORTER_USER_ID || "");
       const locationId = canonical.locationByLanding.get(String(landingId || "")) || "";
 
-      // DB-backed gate strategy
       if (!normalized.trip_date_time) {
-        console.log(`Skipped ${url}: NO_VALID_DATETIME`);
+        logEvent("push_terminal_skip", { url, reason: "NO_VALID_DATETIME", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
       if (!boatNameId && !landingId) {
-        console.log(`Skipped ${url}: NO_BOAT_OR_LANDING_MATCH`);
+        logEvent("push_terminal_skip", { url, reason: "NO_BOAT_OR_LANDING_MATCH", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
       if (!landingId) {
-        console.log(`Skipped ${url}: NO_LANDING_MATCH`);
+        logEvent("push_terminal_skip", { url, reason: "NO_LANDING_MATCH", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
       if ((normalized.fish || []).length === 0) {
-        console.log(`Skipped ${url}: NO_MAPPED_FISH`);
+        logEvent("push_terminal_skip", { url, reason: "NO_MAPPED_FISH", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
       if (!locationId) {
-        console.log(`Skipped ${url}: LANDING_NOT_IN_CANONICAL_MAP`);
+        logEvent("push_terminal_skip", { url, reason: "LANDING_NOT_IN_CANONICAL_MAP", retryCount: 0, terminalState: "skipped" });
         processed.add(url);
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
       if (!userId) throw new Error("Missing user_id");
@@ -304,26 +346,9 @@ async function fetchReport(url) {
         conditions: "3"
       });
 
-      const nextSnapshot = buildTripCandidateSnapshot(url, normalized, { landingId, locationId });
-      const event = buildDiffEvent(snapshotState[url], nextSnapshot);
-      await appendDiffEvent(event);
-      if (event) {
-        const notifications = evaluateRules(event, notificationRules);
-        await appendNotificationPreview(notifications);
-      }
-      snapshotState[url] = nextSnapshot;
-
       if (DRY_RUN) {
-        console.log({
-          url,
-          locationId,
-          landingId,
-          boatNameId,
-          tripTypeId,
-          trip_date_time: normalized.trip_date_time,
-          pictures: normalized.images.length,
-          diff_event: event?.event_type || null
-        });
+        logEvent("push_attempt_dry_run", { url, attempt, locationId, landingId, boatNameId, tripTypeId, tripDateTime: normalized.trip_date_time, pictures: normalized.images.length });
+        recoveryState = markPushSuccess(recoveryState, url);
         continue;
       }
 
@@ -334,13 +359,58 @@ async function fetchReport(url) {
           "x-admin-api-key": process.env.ADMIN_API_KEY
         }
       });
-      console.log(`${url} ${res.data?.message || "OK"}`);
+
+      logEvent("push_attempt_succeeded", {
+        url,
+        attempt,
+        retryCount: Number(prior?.retryCount || 0),
+        terminalState: "success",
+        message: res.data?.message || "OK"
+      });
       processed.add(url);
+      recoveryState = markPushSuccess(recoveryState, url);
     } catch (err) {
-      console.error(`Failed ${url}: ${err.response?.data?.message || err.message}`);
+      const errorMessage = err.response?.data?.message || err.message;
+      const failure = recordPushFailure({
+        state: recoveryState,
+        url,
+        error: errorMessage,
+        maxAttempts: recoveryConfig.maxAttempts,
+        baseCooldownMs: recoveryConfig.baseCooldownMs,
+        maxCooldownMs: recoveryConfig.maxCooldownMs
+      });
+      recoveryState = failure.state;
+
+      if (failure.terminal) {
+        await appendDeadLetter(failure.deadLetter);
+        processed.add(url);
+        logError("push_attempt_terminal_failure", {
+          url,
+          retryCount: failure.retryCount,
+          terminalState: "dead_lettered",
+          error: errorMessage
+        });
+      } else {
+        logError("push_attempt_failed_retry_scheduled", {
+          url,
+          retryCount: failure.retryCount,
+          terminalState: "retry_scheduled",
+          nextAttemptAt: new Date(failure.nextAttemptAt).toISOString(),
+          error: errorMessage
+        });
+      }
     }
   }
 
   await saveProcessedSet(processed);
-  await saveSnapshotState(snapshotState);
-})();
+  await saveRecoveryState(recoveryState);
+  logEvent("push_run_completed", { processedCount: processed.size, recoveryCount: Object.keys(recoveryState).length });
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  runPushPipeline().catch((err) => {
+    logError("push_run_fatal", { error: err?.message || String(err) });
+    process.exitCode = 1;
+  });
+}
