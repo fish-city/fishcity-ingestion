@@ -1,11 +1,13 @@
+import { buildLocalModelReportPrompt } from "../../prompts/localModelPrompts.js";
+import {
+  parseLocalModelJSON,
+  validateLocalModelReportOutput
+} from "../../schemas/localModelContracts.js";
+
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 
 export function buildOllamaPrompt(raw) {
-  return `You are a fishing report structuring assistant. Return ONLY JSON with keys:
-trip_name, trip_date_time, landing_name, boat_name, trip_type, anglers, fish, report_text.
-fish must be array of {species, count}. Unknown => null/empty.
-
-Title:\n${raw.trip_name || ""}\n\nNarrative:\n${raw.report || ""}`;
+  return buildLocalModelReportPrompt(raw);
 }
 
 export function buildOllamaGenerateRequest(raw, { model }) {
@@ -20,11 +22,25 @@ export function buildOllamaGenerateRequest(raw, { model }) {
 export function parseOllamaGenerateResponse(payload) {
   const responseText = payload?.response;
 
-  if (!responseText || typeof responseText !== "string") {
+  if (!responseText) {
     throw new Error("Ollama adapter returned no response text");
   }
 
-  return JSON.parse(responseText);
+  const parsed = parseLocalModelJSON(responseText, {
+    context: "ollama-report-normalization"
+  });
+
+  const validation = validateLocalModelReportOutput(parsed);
+  if (!validation.valid) {
+    const detail = validation.errors.join("; ");
+    console.error("[ollama] Invalid report normalization output", {
+      errors: validation.errors,
+      payload: parsed
+    });
+    throw new Error(`Ollama adapter returned invalid report contract: ${detail}`);
+  }
+
+  return parsed;
 }
 
 export async function normalizeWithOllama(raw, {
