@@ -13,6 +13,11 @@ import {
   loadSnapshotState,
   saveSnapshotState
 } from "../../core/events/diffEvents.js";
+import {
+  appendNotificationPreview,
+  evaluateRules,
+  loadNotificationRules
+} from "../../core/events/notificationRules.js";
 
 dotenv.config();
 
@@ -212,6 +217,7 @@ async function fetchReport(url) {
   const processed = await loadProcessedSet();
   const canonical = await loadCanonicalLocationMap();
   const snapshotState = await loadSnapshotState();
+  const notificationRules = await loadNotificationRules();
 
   const links = accepted
     .map((x) => x.link || x.url)
@@ -301,6 +307,10 @@ async function fetchReport(url) {
       const nextSnapshot = buildTripCandidateSnapshot(url, normalized, { landingId, locationId });
       const event = buildDiffEvent(snapshotState[url], nextSnapshot);
       await appendDiffEvent(event);
+      if (event) {
+        const notifications = evaluateRules(event, notificationRules);
+        await appendNotificationPreview(notifications);
+      }
       snapshotState[url] = nextSnapshot;
 
       if (DRY_RUN) {
