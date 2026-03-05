@@ -143,7 +143,7 @@ function buildFromOpenMeteo(hourly) {
   return { weatherLandInfo, waterTempInfo, waveInfo, waveInfoSpec };
 }
 
-async function buildLocationPayload(location, date) {
+export async function buildLocationPayload(location, date) {
   const [nws, tides, open] = await Promise.all([
     fetchNwsHourly(location.lat, location.lon).catch(() => []),
     fetchNoaaTides(location.noaa_tide_station_id, date).catch(() => []),
@@ -216,10 +216,8 @@ async function buildLocationPayload(location, date) {
   };
 }
 
-(async () => {
-  const date = process.argv[2] || fmtDate();
-  const requestedLocationId = process.argv[3] ? Number(process.argv[3]) : null;
-
+export async function runWeatherPreview({ date = fmtDate(), locationId = null } = {}) {
+  const requestedLocationId = locationId != null ? Number(locationId) : null;
   const locations = JSON.parse(await fs.readFile(LOCATIONS_PATH, "utf8"));
   const chosen = requestedLocationId ? locations.filter((x) => x.location_id === requestedLocationId) : locations;
 
@@ -229,5 +227,16 @@ async function buildLocationPayload(location, date) {
   await fs.mkdir(OUT_DIR, { recursive: true });
   const outPath = path.join(OUT_DIR, "weather_payload_preview.json");
   await fs.writeFile(outPath, JSON.stringify({ generated_at: new Date().toISOString(), data: out }, null, 2));
-  console.log(`Weather preview saved: ${outPath} (${out.length} location(s))`);
-})();
+  return { outPath, count: out.length };
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const date = process.argv[2] || fmtDate();
+  const locationId = process.argv[3] ? Number(process.argv[3]) : null;
+  runWeatherPreview({ date, locationId })
+    .then(({ outPath, count }) => console.log(`Weather preview saved: ${outPath} (${count} location(s))`))
+    .catch((err) => {
+      console.error(err.message);
+      process.exitCode = 1;
+    });
+}
