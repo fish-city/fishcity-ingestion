@@ -14,11 +14,11 @@ test("buildOllamaGenerateRequest creates expected request contract", () => {
   assert.equal(req.model, "qwen2.5:7b-instruct");
   assert.equal(req.stream, false);
   assert.equal(req.format, "json");
-  assert.match(req.prompt, /Title:/);
-  assert.match(req.prompt, /Narrative:/);
+  assert.match(req.prompt, /Input title:/);
+  assert.match(req.prompt, /Input narrative:/);
 });
 
-test("parseOllamaGenerateResponse parses JSON string response contract", () => {
+test("parseOllamaGenerateResponse parses valid JSON report contract", () => {
   const payload = {
     model: "qwen2.5:7b-instruct",
     done: true,
@@ -38,4 +38,26 @@ test("parseOllamaGenerateResponse parses JSON string response contract", () => {
   assert.equal(parsed.trip_name, "Overnight");
   assert.equal(parsed.anglers, 12);
   assert.equal(parsed.fish[0].species, "yellowtail");
+});
+
+test("parseOllamaGenerateResponse throws on invalid report contract", () => {
+  const payload = {
+    model: "qwen2.5:7b-instruct",
+    done: true,
+    response: JSON.stringify({
+      trip_name: "Overnight",
+      trip_date_time: null,
+      landing_name: null,
+      boat_name: null,
+      trip_type: null,
+      anglers: "12",
+      fish: [{ species: "yellowtail", count: 10 }],
+      report_text: "yellowtail and tuna"
+    })
+  };
+
+  assert.throws(
+    () => parseOllamaGenerateResponse(payload),
+    /invalid report contract/
+  );
 });
