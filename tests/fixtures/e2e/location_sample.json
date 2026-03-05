@@ -1,0 +1,8 @@
+{
+  "location_id": 100,
+  "location_name": "San Diego Bay",
+  "noaa_tide_station_id": "9410170",
+  "lat": 32.7157,
+  "lon": -117.1611,
+  "timezone": "America/Los_Angeles"
+}

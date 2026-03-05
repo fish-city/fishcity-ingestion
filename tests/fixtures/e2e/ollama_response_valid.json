@@ -1,0 +1,3 @@
+{
+  "response": "{\"trip_name\":\"Local 3/4 Day\",\"trip_date_time\":null,\"landing_name\":\"H&M Landing\",\"boat_name\":\"Ocean Odyssey\",\"trip_type\":\"3/4 Day\",\"anglers\":18,\"fish\":[{\"species\":\"yellowtail\",\"count\":36},{\"species\":\"calico bass\",\"count\":12}],\"report_text\":\"Steady yellowtail action on surface iron.\"}"
+}

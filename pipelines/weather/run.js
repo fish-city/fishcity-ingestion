@@ -1,6 +1,7 @@
 import axios from "axios";
 import fs from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 
 const OUT_DIR = path.resolve("runs", "dev_output");
 const LOCATIONS_PATH = path.resolve("reference", "weather_locations.json");
@@ -17,16 +18,16 @@ function minMax(arr) {
   if (!nums.length) return { min: 0, max: 0, current: 0 };
   return { min: Math.min(...nums), max: Math.max(...nums), current: nums[0] };
 }
-function degToCardinal(deg) {
+export function degToCardinal(deg) {
   const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
 
-async function fetchNwsHourly(lat, lon) {
-  const p = await axios.get(`https://api.weather.gov/points/${lat},${lon}`, { timeout: 20000, headers: { "User-Agent": "FishCityWeather/1.0" } });
+export async function fetchNwsHourly(lat, lon, fetchImpl = axios.get) {
+  const p = await fetchImpl(`https://api.weather.gov/points/${lat},${lon}`, { timeout: 20000, headers: { "User-Agent": "FishCityWeather/1.0" } });
   const hourlyUrl = p.data?.properties?.forecastHourly;
   if (!hourlyUrl) return [];
-  const h = await axios.get(hourlyUrl, { timeout: 20000, headers: { "User-Agent": "FishCityWeather/1.0" } });
+  const h = await fetchImpl(hourlyUrl, { timeout: 20000, headers: { "User-Agent": "FishCityWeather/1.0" } });
   const periods = h.data?.properties?.periods || [];
   return periods.slice(0, 24).map((x) => ({
     dt: String(x.startTime || "").replace("T", " ").slice(0, 19),
@@ -47,7 +48,7 @@ async function fetchNwsHourly(lat, lon) {
   }));
 }
 
-async function fetchNoaaTides(stationId, date) {
+export async function fetchNoaaTides(stationId, date, fetchImpl = axios.get) {
   const url = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
   const params = {
     product: "predictions",
@@ -61,11 +62,11 @@ async function fetchNoaaTides(stationId, date) {
     interval: "h",
     format: "json"
   };
-  const r = await axios.get(url, { params, timeout: 20000 });
+  const r = await fetchImpl(url, { params, timeout: 20000 });
   return (r.data?.predictions || []).map((x) => ({ t: x.t, v: x.v }));
 }
 
-async function fetchOpenMeteo(lat, lon, timezone) {
+export async function fetchOpenMeteo(lat, lon, timezone, fetchImpl = axios.get) {
   const params = {
     latitude: lat,
     longitude: lon,
@@ -78,11 +79,11 @@ async function fetchOpenMeteo(lat, lon, timezone) {
       "swell_wave_height", "swell_wave_direction", "swell_wave_period"
     ].join(",")
   };
-  const r = await axios.get("https://marine-api.open-meteo.com/v1/marine", { params, timeout: 25000 });
+  const r = await fetchImpl("https://marine-api.open-meteo.com/v1/marine", { params, timeout: 25000 });
   return r.data?.hourly || {};
 }
 
-function buildFromOpenMeteo(hourly) {
+export function buildFromOpenMeteo(hourly) {
   const t = hourly.time || [];
   const idx = (k) => hourly[k] || [];
 
@@ -143,11 +144,11 @@ function buildFromOpenMeteo(hourly) {
   return { weatherLandInfo, waterTempInfo, waveInfo, waveInfoSpec };
 }
 
-async function buildLocationPayload(location, date) {
+export async function buildLocationPayload(location, date, fetchImpl = axios.get) {
   const [nws, tides, open] = await Promise.all([
-    fetchNwsHourly(location.lat, location.lon).catch(() => []),
-    fetchNoaaTides(location.noaa_tide_station_id, date).catch(() => []),
-    fetchOpenMeteo(location.lat, location.lon, location.timezone).catch(() => ({}))
+    fetchNwsHourly(location.lat, location.lon, fetchImpl).catch(() => []),
+    fetchNoaaTides(location.noaa_tide_station_id, date, fetchImpl).catch(() => []),
+    fetchOpenMeteo(location.lat, location.lon, location.timezone, fetchImpl).catch(() => ({}))
   ]);
 
   const { weatherLandInfo, waterTempInfo, waveInfo, waveInfoSpec } = buildFromOpenMeteo(open);
@@ -216,18 +217,27 @@ async function buildLocationPayload(location, date) {
   };
 }
 
-(async () => {
-  const date = process.argv[2] || fmtDate();
-  const requestedLocationId = process.argv[3] ? Number(process.argv[3]) : null;
-
+export async function runWeatherPreview({ date = fmtDate(), locationId = null, fetchImpl = axios.get } = {}) {
+  const requestedLocationId = locationId != null ? Number(locationId) : null;
   const locations = JSON.parse(await fs.readFile(LOCATIONS_PATH, "utf8"));
   const chosen = requestedLocationId ? locations.filter((x) => x.location_id === requestedLocationId) : locations;
 
   const out = [];
-  for (const loc of chosen) out.push(await buildLocationPayload(loc, date));
+  for (const loc of chosen) out.push(await buildLocationPayload(loc, date, fetchImpl));
 
   await fs.mkdir(OUT_DIR, { recursive: true });
   const outPath = path.join(OUT_DIR, "weather_payload_preview.json");
   await fs.writeFile(outPath, JSON.stringify({ generated_at: new Date().toISOString(), data: out }, null, 2));
-  console.log(`Weather preview saved: ${outPath} (${out.length} location(s))`);
-})();
+  return { outPath, count: out.length };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const date = process.argv[2] || fmtDate();
+  const locationId = process.argv[3] ? Number(process.argv[3]) : null;
+  runWeatherPreview({ date, locationId })
+    .then(({ outPath, count }) => console.log(`Weather preview saved: ${outPath} (${count} location(s))`))
+    .catch((err) => {
+      console.error(err.message);
+      process.exitCode = 1;
+    });
+}
