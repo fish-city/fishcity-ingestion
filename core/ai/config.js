@@ -5,7 +5,7 @@ export const AI_PROVIDERS = {
 };
 
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
-const DEFAULT_OLLAMA_MODEL = "qwen2.5:7b-instruct";
+const DEFAULT_OLLAMA_MODEL = "qwen2.5:14b";
 const DEFAULT_OLLAMA_TIMEOUT_MS = 20_000;
 
 export function getAIConfig() {
