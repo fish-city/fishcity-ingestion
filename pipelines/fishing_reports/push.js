@@ -6,6 +6,18 @@ import dotenv from "dotenv";
 import { normalizeReportWithAI } from "../../core/aiNormalizer.js";
 import { referenceCache } from "../../core/referenceCache.js";
 import { buildCreateTripPayload } from "./payload.js";
+import {
+  appendDiffEvent,
+  buildDiffEvent,
+  buildTripCandidateSnapshot,
+  loadSnapshotState,
+  saveSnapshotState
+} from "../../core/events/diffEvents.js";
+import {
+  appendNotificationPreview,
+  evaluateRules,
+  loadNotificationRules
+} from "../../core/events/notificationRules.js";
 
 dotenv.config();
 
@@ -204,6 +216,8 @@ async function fetchReport(url) {
   await referenceCache.ensureLoaded();
   const processed = await loadProcessedSet();
   const canonical = await loadCanonicalLocationMap();
+  const snapshotState = await loadSnapshotState();
+  const notificationRules = await loadNotificationRules();
 
   const links = accepted
     .map((x) => x.link || x.url)
@@ -290,8 +304,26 @@ async function fetchReport(url) {
         conditions: "3"
       });
 
+      const nextSnapshot = buildTripCandidateSnapshot(url, normalized, { landingId, locationId });
+      const event = buildDiffEvent(snapshotState[url], nextSnapshot);
+      await appendDiffEvent(event);
+      if (event) {
+        const notifications = evaluateRules(event, notificationRules);
+        await appendNotificationPreview(notifications);
+      }
+      snapshotState[url] = nextSnapshot;
+
       if (DRY_RUN) {
-        console.log({ url, locationId, landingId, boatNameId, tripTypeId, trip_date_time: normalized.trip_date_time, pictures: normalized.images.length });
+        console.log({
+          url,
+          locationId,
+          landingId,
+          boatNameId,
+          tripTypeId,
+          trip_date_time: normalized.trip_date_time,
+          pictures: normalized.images.length,
+          diff_event: event?.event_type || null
+        });
         continue;
       }
 
@@ -310,4 +342,5 @@ async function fetchReport(url) {
   }
 
   await saveProcessedSet(processed);
+  await saveSnapshotState(snapshotState);
 })();

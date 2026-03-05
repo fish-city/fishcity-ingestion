@@ -1,0 +1,23 @@
+{
+  "schema_version": "v1",
+  "rules": [
+    {
+      "id": "trip-candidate-created-preview",
+      "enabled": false,
+      "match": {
+        "event_type": "ingestion.trip_candidate.created"
+      },
+      "channel": "preview-log",
+      "template": "New trip candidate: {{entity_id}}"
+    },
+    {
+      "id": "trip-candidate-updated-preview",
+      "enabled": false,
+      "match": {
+        "event_type": "ingestion.trip_candidate.updated"
+      },
+      "channel": "preview-log",
+      "template": "Updated trip candidate: {{entity_id}} ({{change_count}} changes)"
+    }
+  ]
+}
