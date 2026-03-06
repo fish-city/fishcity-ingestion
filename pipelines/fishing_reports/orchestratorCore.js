@@ -5,6 +5,7 @@ import { spawn } from "child_process";
 
 export const STAGE_ORDER = ["snapshot", "diff", "rules", "push"];
 const RUN_STATE_PATH = path.resolve("state", "ingestion_orchestrator_runs.json");
+const DAILY_ROLLUP_PATH = path.resolve("state", "ingestion_orchestrator_daily_rollups.json");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +14,10 @@ const PUSH_SCRIPT = path.resolve(__dirname, "push.js");
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function dateKeyFromIso(iso) {
+  return String(iso || "").slice(0, 10);
 }
 
 function parseArgs(argv = []) {
@@ -45,6 +50,58 @@ async function readRunState() {
 async function writeRunState(state) {
   await fs.mkdir(path.dirname(RUN_STATE_PATH), { recursive: true });
   await fs.writeFile(RUN_STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+async function readDailyRollups() {
+  try {
+    const raw = await fs.readFile(DAILY_ROLLUP_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : { days: {} };
+  } catch {
+    return { days: {} };
+  }
+}
+
+async function writeDailyRollups(rollups) {
+  await fs.mkdir(path.dirname(DAILY_ROLLUP_PATH), { recursive: true });
+  await fs.writeFile(DAILY_ROLLUP_PATH, JSON.stringify(rollups, null, 2));
+}
+
+export function updateDailyRollupDay(dayRollup = {}, runSummary = {}) {
+  const status = runSummary.status || "unknown";
+  const stageTimingsMs = runSummary.stageTimingsMs || {};
+  const next = {
+    runsTotal: Number(dayRollup.runsTotal || 0) + 1,
+    completed: Number(dayRollup.completed || 0),
+    failed: Number(dayRollup.failed || 0),
+    skipped: Number(dayRollup.skipped || 0),
+    stageTotalsMs: { ...(dayRollup.stageTotalsMs || {}) },
+    stageMaxMs: { ...(dayRollup.stageMaxMs || {}) },
+    lastRunAt: runSummary.occurredAt || dayRollup.lastRunAt || null
+  };
+
+  if (status === "completed") next.completed += 1;
+  else if (status === "failed") next.failed += 1;
+  else if (status === "skipped") next.skipped += 1;
+
+  for (const [stageName, durationMs] of Object.entries(stageTimingsMs)) {
+    const duration = Number(durationMs || 0);
+    next.stageTotalsMs[stageName] = Number(next.stageTotalsMs[stageName] || 0) + duration;
+    next.stageMaxMs[stageName] = Math.max(Number(next.stageMaxMs[stageName] || 0), duration);
+  }
+
+  return next;
+}
+
+async function appendDailyRollup(runSummary = {}) {
+  const occurredAt = runSummary.occurredAt || nowIso();
+  const dayKey = dateKeyFromIso(occurredAt);
+  const rollups = await readDailyRollups();
+
+  const day = rollups.days[dayKey] || {};
+  rollups.days[dayKey] = updateDailyRollupDay(day, { ...runSummary, occurredAt });
+
+  await writeDailyRollups(rollups);
 }
 
 function emitMetric(event, payload = {}) {
@@ -93,6 +150,7 @@ export async function runOrchestrator(options = {}, deps = {}) {
   if (existing && !force) {
     const reason = existing.status === "completed" ? "duplicate_completed_run" : "duplicate_active_run";
     emitMetric("run_skipped", { runId, reason, previousStatus: existing.status });
+    await appendDailyRollup({ runId, status: "skipped", reason });
     return { runId, skipped: true, reason, previousStatus: existing.status };
   }
 
@@ -129,6 +187,7 @@ export async function runOrchestrator(options = {}, deps = {}) {
     await writeRunState(finalState);
 
     emitMetric("run_completed", { runId, stageTimingsMs });
+    await appendDailyRollup({ runId, status: "completed", stageTimingsMs });
     return { runId, skipped: false, stageTimingsMs };
   } catch (error) {
     const failedState = await readRunState();
@@ -141,6 +200,7 @@ export async function runOrchestrator(options = {}, deps = {}) {
     await writeRunState(failedState);
 
     emitMetric("run_failed", { runId, error: error.message, stageTimingsMs });
+    await appendDailyRollup({ runId, status: "failed", stageTimingsMs, error: error.message });
     throw error;
   }
 }
