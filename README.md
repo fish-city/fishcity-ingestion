@@ -21,6 +21,7 @@ Optional flags:
 - `--stage-max-avg.<stage>=<ms>`: override stage average latency threshold (repeatable)
 - `--include-calibration true`: add threshold calibration recommendation block to output
 - `--calibration-min-days <n>`: minimum day sample required for calibration readiness (default `5`)
+- `--dashboard-output <path>`: write compact dashboard JSON payload (status, rates, stage timings, threshold issues, optional calibration recommendations)
 
 Examples:
 
@@ -29,6 +30,7 @@ npm run orchestrator:rollup:report -- --window-days 14
 npm run orchestrator:rollup:report -- --day 2026-03-06 --json true
 npm run orchestrator:rollup:report -- --max-failure-rate 3 --stage-max-avg.snapshot=3500
 npm run orchestrator:rollup:report -- --window-days 14 --include-calibration true --calibration-min-days 7 --json true
+npm run orchestrator:rollup:report -- --window-days 14 --include-calibration true --dashboard-output state/orchestrator_rollup_dashboard.json
 ```
 
 ## FCC-41 End-to-End Validation Harness (Staging)

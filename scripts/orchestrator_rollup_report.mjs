@@ -1,4 +1,7 @@
+import fs from "fs/promises";
+import path from "path";
 import {
+  buildOpsDashboardPayload,
   buildRollupWindowReport,
   formatRollupReportText,
   loadRollupState
@@ -39,6 +42,7 @@ function parseArgs(argv = []) {
     json: String(map.get("--json") || "false").toLowerCase() === "true",
     includeCalibration: String(map.get("--include-calibration") || "false").toLowerCase() === "true",
     calibrationMinDays: Number(map.get("--calibration-min-days") || 5),
+    dashboardOutput: map.get("--dashboard-output") || null,
     thresholds: {
       minSuccessRatePct: map.has("--min-success-rate") ? Number(map.get("--min-success-rate")) : undefined,
       maxFailureRatePct: map.has("--max-failure-rate") ? Number(map.get("--max-failure-rate")) : undefined,
@@ -58,6 +62,13 @@ async function main() {
     calibrationMinDays: args.calibrationMinDays,
     thresholds: args.thresholds
   });
+
+  if (args.dashboardOutput) {
+    const dashboardPayload = buildOpsDashboardPayload(report);
+    const outputPath = path.resolve(args.dashboardOutput);
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.writeFile(outputPath, `${JSON.stringify(dashboardPayload, null, 2)}\n`, "utf8");
+  }
 
   if (args.json) {
     console.log(JSON.stringify(report, null, 2));

@@ -257,6 +257,75 @@ export function buildRollupWindowReport(rollupState = {}, options = {}) {
   return report;
 }
 
+export function buildOpsDashboardPayload(report = {}, options = {}) {
+  const stageStats = report?.totals?.stageStats || {};
+  const stageRows = Object.entries(stageStats)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([stage, stats]) => ({
+      stage,
+      avgMs: Number(stats?.avgMs || 0),
+      maxMs: Number(stats?.maxMs || 0),
+      totalMs: Number(stats?.totalMs || 0)
+    }));
+
+  const issues = Array.isArray(report?.thresholdEvaluation?.issues)
+    ? report.thresholdEvaluation.issues.map((issue) => ({
+      kind: issue.kind,
+      severity: issue.severity,
+      stage: issue.stage || null,
+      actual: issue.actual,
+      threshold: issue.threshold,
+      message: issue.message
+    }))
+    : [];
+
+  const calibration = report?.thresholdCalibration || null;
+  const calibrationRecommendationArgs = [];
+  if (calibration?.ready && calibration?.recommended) {
+    calibrationRecommendationArgs.push(`--min-success-rate ${calibration.recommended.minSuccessRatePct}`);
+    calibrationRecommendationArgs.push(`--max-failure-rate ${calibration.recommended.maxFailureRatePct}`);
+    calibrationRecommendationArgs.push(`--max-skip-rate ${calibration.recommended.maxSkipRatePct}`);
+    for (const [stageName, value] of Object.entries(calibration.recommended.maxStageAvgMs || {})) {
+      if (value == null) continue;
+      calibrationRecommendationArgs.push(`--stage-max-avg.${stageName}=${value}`);
+    }
+  }
+
+  return {
+    generatedAt: report.generatedAt || null,
+    window: {
+      selectedDay: report.selectedDay || null,
+      windowDays: Number(report.windowDays || 0),
+      availableDayCount: Array.isArray(report.availableDays) ? report.availableDays.length : 0
+    },
+    totals: {
+      runsTotal: Number(report?.totals?.runsTotal || 0),
+      completed: Number(report?.totals?.completed || 0),
+      failed: Number(report?.totals?.failed || 0),
+      skipped: Number(report?.totals?.skipped || 0),
+      successRatePct: Number(report?.totals?.successRatePct || 0),
+      failureRatePct: Number(report?.totals?.failureRatePct || 0),
+      skipRatePct: Number(report?.totals?.skipRatePct || 0)
+    },
+    stageTimings: stageRows,
+    thresholdStatus: report?.thresholdEvaluation?.status || "ok",
+    thresholdIssues: issues,
+    thresholdCalibration: calibration
+      ? {
+          ready: Boolean(calibration.ready),
+          sampleSizeDays: Number(calibration.sampleSizeDays || 0),
+          minDays: Number(calibration.minDays || 0),
+          recommended: calibration.recommended || null,
+          recommendedCliArgs: calibrationRecommendationArgs
+        }
+      : null,
+    source: {
+      kind: "ingestion_orchestrator_daily_rollups",
+      version: options.version || "v1"
+    }
+  };
+}
+
 export function formatRollupReportText(report = {}) {
   const lines = [];
   lines.push("Fish City Ingestion Orchestrator — Daily Rollups");

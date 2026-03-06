@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildDayReport,
+  buildOpsDashboardPayload,
   buildRollupWindowReport,
   buildThresholdCalibration,
   evaluateRollupThresholds,
@@ -168,4 +169,40 @@ test("buildRollupWindowReport can include threshold calibration in output", () =
   const text = formatRollupReportText(report);
   assert.match(text, /Threshold calibration: READY/);
   assert.match(text, /Recommended min success rate:/);
+});
+
+test("buildOpsDashboardPayload emits compact status payload for dashboard consumers", () => {
+  const report = buildRollupWindowReport({
+    days: {
+      "2026-03-05": {
+        runsTotal: 2,
+        completed: 1,
+        failed: 1,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 14000 },
+        stageMaxMs: { snapshot: 9000 }
+      },
+      "2026-03-06": {
+        runsTotal: 1,
+        completed: 1,
+        failed: 0,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 1000 },
+        stageMaxMs: { snapshot: 1000 }
+      }
+    }
+  }, {
+    includeCalibration: true,
+    calibrationMinDays: 2,
+    windowDays: 2
+  });
+
+  const payload = buildOpsDashboardPayload(report);
+  assert.equal(payload.source.kind, "ingestion_orchestrator_daily_rollups");
+  assert.equal(payload.window.windowDays, 2);
+  assert.equal(payload.stageTimings[0].stage, "snapshot");
+  assert.equal(payload.thresholdStatus, "warn");
+  assert.ok(payload.thresholdIssues.some((issue) => issue.kind === "stage_avg_high"));
+  assert.equal(payload.thresholdCalibration.ready, true);
+  assert.ok(payload.thresholdCalibration.recommendedCliArgs.some((arg) => arg.startsWith("--stage-max-avg.snapshot=")));
 });
