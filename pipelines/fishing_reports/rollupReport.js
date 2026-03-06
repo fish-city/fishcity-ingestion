@@ -75,6 +75,71 @@ function mergeThresholds(overrides = {}) {
   };
 }
 
+function percentile(values = [], pct = 0.9) {
+  const nums = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+
+  if (nums.length === 0) return null;
+  if (nums.length === 1) return nums[0];
+
+  const idx = (nums.length - 1) * pct;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) return nums[lower];
+
+  const weight = idx - lower;
+  return nums[lower] + (nums[upper] - nums[lower]) * weight;
+}
+
+export function buildThresholdCalibration(report = {}, options = {}) {
+  const minDays = Math.max(Number(options.minDays || 5), 1);
+  const days = Array.isArray(report.days) ? report.days : [];
+  const sampleSizeDays = days.length;
+  const ready = sampleSizeDays >= minDays;
+
+  const successRates = days.map((day) => Number(day.successRatePct || 0));
+  const failureRates = days.map((day) => Number(day.failureRatePct || 0));
+  const skipRates = days.map((day) => Number(day.skipRatePct || 0));
+
+  const stageDailyAverages = {};
+  for (const day of days) {
+    for (const [stageName, stats] of Object.entries(day.stageStats || {})) {
+      if (!stageDailyAverages[stageName]) stageDailyAverages[stageName] = [];
+      stageDailyAverages[stageName].push(Number(stats.avgMs || 0));
+    }
+  }
+
+  const recommended = {
+    minSuccessRatePct: ready ? Math.floor(percentile(successRates, 0.1) || 0) : null,
+    maxFailureRatePct: ready ? Math.ceil(percentile(failureRates, 0.9) || 0) : null,
+    maxSkipRatePct: ready ? Math.ceil(percentile(skipRates, 0.9) || 0) : null,
+    maxStageAvgMs: {}
+  };
+
+  for (const [stageName, stageAvgs] of Object.entries(stageDailyAverages)) {
+    if (!ready) {
+      recommended.maxStageAvgMs[stageName] = null;
+      continue;
+    }
+    recommended.maxStageAvgMs[stageName] = Math.ceil(percentile(stageAvgs, 0.9) || 0);
+  }
+
+  return {
+    ready,
+    minDays,
+    sampleSizeDays,
+    methodology: {
+      minSuccessRatePct: "p10 daily successRatePct (floor)",
+      maxFailureRatePct: "p90 daily failureRatePct (ceil)",
+      maxSkipRatePct: "p90 daily skipRatePct (ceil)",
+      maxStageAvgMs: "p90 daily stage avgMs (ceil)"
+    },
+    recommended
+  };
+}
+
 export function evaluateRollupThresholds(report = {}, overrides = {}) {
   const thresholds = mergeThresholds(overrides);
   const issues = [];
@@ -184,6 +249,11 @@ export function buildRollupWindowReport(rollupState = {}, options = {}) {
   };
 
   report.thresholdEvaluation = evaluateRollupThresholds(report, options.thresholds || {});
+  if (options.includeCalibration) {
+    report.thresholdCalibration = buildThresholdCalibration(report, {
+      minDays: options.calibrationMinDays
+    });
+  }
   return report;
 }
 
@@ -223,6 +293,20 @@ export function formatRollupReportText(report = {}) {
   if (Array.isArray(thresholdEvaluation.issues) && thresholdEvaluation.issues.length > 0) {
     for (const issue of thresholdEvaluation.issues) {
       lines.push(`- ${issue.message}`);
+    }
+  }
+
+  if (report.thresholdCalibration) {
+    const calibration = report.thresholdCalibration;
+    lines.push("");
+    lines.push(`Threshold calibration: ${calibration.ready ? "READY" : "NOT_READY"} (${calibration.sampleSizeDays}/${calibration.minDays} day samples)`);
+    if (calibration.ready) {
+      lines.push(`- Recommended min success rate: ${calibration.recommended.minSuccessRatePct}%`);
+      lines.push(`- Recommended max failure rate: ${calibration.recommended.maxFailureRatePct}%`);
+      lines.push(`- Recommended max skip rate: ${calibration.recommended.maxSkipRatePct}%`);
+      for (const [stageName, value] of Object.entries(calibration.recommended.maxStageAvgMs || {})) {
+        lines.push(`- Recommended stage max avg (${stageName}): ${value}ms`);
+      }
     }
   }
 

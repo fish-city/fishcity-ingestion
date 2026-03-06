@@ -37,6 +37,8 @@ function parseArgs(argv = []) {
     day: map.get("--day") || null,
     windowDays: Number(map.get("--window-days") || map.get("--windowDays") || 7),
     json: String(map.get("--json") || "false").toLowerCase() === "true",
+    includeCalibration: String(map.get("--include-calibration") || "false").toLowerCase() === "true",
+    calibrationMinDays: Number(map.get("--calibration-min-days") || 5),
     thresholds: {
       minSuccessRatePct: map.has("--min-success-rate") ? Number(map.get("--min-success-rate")) : undefined,
       maxFailureRatePct: map.has("--max-failure-rate") ? Number(map.get("--max-failure-rate")) : undefined,
@@ -52,6 +54,8 @@ async function main() {
   const report = buildRollupWindowReport(rollupState, {
     day: args.day,
     windowDays: args.windowDays,
+    includeCalibration: args.includeCalibration,
+    calibrationMinDays: args.calibrationMinDays,
     thresholds: args.thresholds
   });
 

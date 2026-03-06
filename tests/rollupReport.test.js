@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildDayReport,
   buildRollupWindowReport,
+  buildThresholdCalibration,
   evaluateRollupThresholds,
   formatRollupReportText
 } from "../pipelines/fishing_reports/rollupReport.js";
@@ -128,4 +129,43 @@ test("buildRollupWindowReport supports threshold overrides", () => {
 
   assert.equal(report.thresholdEvaluation.status, "ok");
   assert.equal(report.thresholdEvaluation.issues.length, 0);
+});
+
+test("buildThresholdCalibration returns recommended thresholds when sample is ready", () => {
+  const report = {
+    days: [
+      { successRatePct: 90, failureRatePct: 5, skipRatePct: 5, stageStats: { snapshot: { avgMs: 1200 } } },
+      { successRatePct: 95, failureRatePct: 3, skipRatePct: 2, stageStats: { snapshot: { avgMs: 1300 } } },
+      { successRatePct: 85, failureRatePct: 10, skipRatePct: 5, stageStats: { snapshot: { avgMs: 1400 } } },
+      { successRatePct: 98, failureRatePct: 1, skipRatePct: 1, stageStats: { snapshot: { avgMs: 1250 } } },
+      { successRatePct: 92, failureRatePct: 4, skipRatePct: 4, stageStats: { snapshot: { avgMs: 1500 } } }
+    ]
+  };
+
+  const calibration = buildThresholdCalibration(report, { minDays: 5 });
+  assert.equal(calibration.ready, true);
+  assert.equal(calibration.sampleSizeDays, 5);
+  assert.equal(calibration.recommended.minSuccessRatePct, 87);
+  assert.equal(calibration.recommended.maxFailureRatePct, 8);
+  assert.equal(calibration.recommended.maxSkipRatePct, 5);
+  assert.equal(calibration.recommended.maxStageAvgMs.snapshot, 1460);
+});
+
+test("buildRollupWindowReport can include threshold calibration in output", () => {
+  const report = buildRollupWindowReport({
+    days: {
+      "2026-03-01": { runsTotal: 1, completed: 1, failed: 0, skipped: 0, stageTotalsMs: { snapshot: 1000 }, stageMaxMs: { snapshot: 1000 } },
+      "2026-03-02": { runsTotal: 1, completed: 1, failed: 0, skipped: 0, stageTotalsMs: { snapshot: 1100 }, stageMaxMs: { snapshot: 1100 } },
+      "2026-03-03": { runsTotal: 1, completed: 1, failed: 0, skipped: 0, stageTotalsMs: { snapshot: 1200 }, stageMaxMs: { snapshot: 1200 } },
+      "2026-03-04": { runsTotal: 1, completed: 1, failed: 0, skipped: 0, stageTotalsMs: { snapshot: 1300 }, stageMaxMs: { snapshot: 1300 } },
+      "2026-03-05": { runsTotal: 1, completed: 1, failed: 0, skipped: 0, stageTotalsMs: { snapshot: 1400 }, stageMaxMs: { snapshot: 1400 } }
+    }
+  }, { includeCalibration: true, calibrationMinDays: 5, windowDays: 5 });
+
+  assert.equal(report.thresholdCalibration.ready, true);
+  assert.ok(report.thresholdCalibration.recommended.maxStageAvgMs.snapshot >= 1360);
+
+  const text = formatRollupReportText(report);
+  assert.match(text, /Threshold calibration: READY/);
+  assert.match(text, /Recommended min success rate:/);
 });
