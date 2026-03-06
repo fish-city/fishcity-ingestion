@@ -4,6 +4,17 @@ import path from "path";
 const DAILY_ROLLUP_PATH = path.resolve("state", "ingestion_orchestrator_daily_rollups.json");
 const DEFAULT_WINDOW_DAYS = 7;
 
+export const DEFAULT_ROLLUP_THRESHOLDS = {
+  minSuccessRatePct: 95,
+  maxFailureRatePct: 5,
+  maxSkipRatePct: 10,
+  maxStageAvgMs: {
+    snapshot: 4000,
+    push: 5000,
+    totalPipeline: 12000
+  }
+};
+
 function roundToInt(value) {
   return Math.round(Number(value || 0));
 }
@@ -53,6 +64,75 @@ export function buildDayReport(dayKey, day = {}) {
   };
 }
 
+function mergeThresholds(overrides = {}) {
+  return {
+    ...DEFAULT_ROLLUP_THRESHOLDS,
+    ...overrides,
+    maxStageAvgMs: {
+      ...DEFAULT_ROLLUP_THRESHOLDS.maxStageAvgMs,
+      ...(overrides.maxStageAvgMs || {})
+    }
+  };
+}
+
+export function evaluateRollupThresholds(report = {}, overrides = {}) {
+  const thresholds = mergeThresholds(overrides);
+  const issues = [];
+
+  const totals = report.totals || {};
+  if (Number(totals.successRatePct || 0) < Number(thresholds.minSuccessRatePct)) {
+    issues.push({
+      kind: "success_rate_low",
+      severity: "warn",
+      actual: Number(totals.successRatePct || 0),
+      threshold: Number(thresholds.minSuccessRatePct),
+      message: `Success rate ${Number(totals.successRatePct || 0)}% below threshold ${Number(thresholds.minSuccessRatePct)}%`
+    });
+  }
+
+  if (Number(totals.failureRatePct || 0) > Number(thresholds.maxFailureRatePct)) {
+    issues.push({
+      kind: "failure_rate_high",
+      severity: "warn",
+      actual: Number(totals.failureRatePct || 0),
+      threshold: Number(thresholds.maxFailureRatePct),
+      message: `Failure rate ${Number(totals.failureRatePct || 0)}% above threshold ${Number(thresholds.maxFailureRatePct)}%`
+    });
+  }
+
+  if (Number(totals.skipRatePct || 0) > Number(thresholds.maxSkipRatePct)) {
+    issues.push({
+      kind: "skip_rate_high",
+      severity: "warn",
+      actual: Number(totals.skipRatePct || 0),
+      threshold: Number(thresholds.maxSkipRatePct),
+      message: `Skip rate ${Number(totals.skipRatePct || 0)}% above threshold ${Number(thresholds.maxSkipRatePct)}%`
+    });
+  }
+
+  const stageStats = totals.stageStats || {};
+  for (const [stageName, maxAvgMs] of Object.entries(thresholds.maxStageAvgMs || {})) {
+    const stage = stageStats[stageName];
+    if (!stage) continue;
+    if (Number(stage.avgMs || 0) > Number(maxAvgMs)) {
+      issues.push({
+        kind: "stage_avg_high",
+        severity: "warn",
+        stage: stageName,
+        actual: Number(stage.avgMs || 0),
+        threshold: Number(maxAvgMs),
+        message: `Stage ${stageName} avg ${Number(stage.avgMs || 0)}ms above threshold ${Number(maxAvgMs)}ms`
+      });
+    }
+  }
+
+  return {
+    thresholds,
+    status: issues.length ? "warn" : "ok",
+    issues
+  };
+}
+
 export function buildRollupWindowReport(rollupState = {}, options = {}) {
   const days = rollupState.days && typeof rollupState.days === "object" ? rollupState.days : {};
   const availableDayKeys = Object.keys(days).sort();
@@ -89,7 +169,7 @@ export function buildRollupWindowReport(rollupState = {}, options = {}) {
     stats.avgMs = executedRuns ? roundToInt(stats.totalMs / executedRuns) : 0;
   }
 
-  return {
+  const report = {
     generatedAt: new Date().toISOString(),
     windowDays: selectedDay ? 1 : windowDays,
     selectedDay,
@@ -102,6 +182,9 @@ export function buildRollupWindowReport(rollupState = {}, options = {}) {
     },
     days: dayReports
   };
+
+  report.thresholdEvaluation = evaluateRollupThresholds(report, options.thresholds || {});
+  return report;
 }
 
 export function formatRollupReportText(report = {}) {
@@ -131,6 +214,15 @@ export function formatRollupReportText(report = {}) {
     for (const stageName of stageNames) {
       const stats = report.totals.stageStats[stageName];
       lines.push(`- ${stageName}: avg=${stats.avgMs}ms max=${stats.maxMs}ms total=${stats.totalMs}ms`);
+    }
+  }
+
+  const thresholdEvaluation = report.thresholdEvaluation || { status: "ok", issues: [] };
+  lines.push("");
+  lines.push(`Threshold status: ${thresholdEvaluation.status.toUpperCase()}`);
+  if (Array.isArray(thresholdEvaluation.issues) && thresholdEvaluation.issues.length > 0) {
+    for (const issue of thresholdEvaluation.issues) {
+      lines.push(`- ${issue.message}`);
     }
   }
 

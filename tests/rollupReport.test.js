@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildDayReport,
   buildRollupWindowReport,
+  evaluateRollupThresholds,
   formatRollupReportText
 } from "../pipelines/fishing_reports/rollupReport.js";
 
@@ -84,4 +85,47 @@ test("formatRollupReportText includes totals and per-day lines", () => {
   assert.match(text, /Totals: runs=2 completed=1 failed=1 skipped=0 success=50%/);
   assert.match(text, /- 2026-03-06: runs=2 completed=1 failed=1 skipped=0/);
   assert.match(text, /snapshot: avg=150ms max=180ms total=300ms/);
+  assert.match(text, /Threshold status: WARN/);
+});
+
+test("evaluateRollupThresholds reports threshold issues", () => {
+  const evaluation = evaluateRollupThresholds({
+    totals: {
+      successRatePct: 80,
+      failureRatePct: 15,
+      skipRatePct: 5,
+      stageStats: {
+        snapshot: { avgMs: 6000, maxMs: 7000, totalMs: 6000 }
+      }
+    }
+  });
+
+  assert.equal(evaluation.status, "warn");
+  assert.ok(evaluation.issues.some((issue) => issue.kind === "success_rate_low"));
+  assert.ok(evaluation.issues.some((issue) => issue.kind === "failure_rate_high"));
+  assert.ok(evaluation.issues.some((issue) => issue.kind === "stage_avg_high" && issue.stage === "snapshot"));
+});
+
+test("buildRollupWindowReport supports threshold overrides", () => {
+  const report = buildRollupWindowReport({
+    days: {
+      "2026-03-06": {
+        runsTotal: 1,
+        completed: 1,
+        failed: 0,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 5000 },
+        stageMaxMs: { snapshot: 5000 }
+      }
+    }
+  }, {
+    thresholds: {
+      maxStageAvgMs: {
+        snapshot: 6000
+      }
+    }
+  });
+
+  assert.equal(report.thresholdEvaluation.status, "ok");
+  assert.equal(report.thresholdEvaluation.issues.length, 0);
 });

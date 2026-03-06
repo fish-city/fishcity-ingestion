@@ -25,10 +25,24 @@ function parseArgs(argv = []) {
     }
   }
 
+  const stageMaxAvgPairs = [];
+  for (const [key, value] of map.entries()) {
+    if (key.startsWith("--stage-max-avg.")) {
+      const stageName = key.slice("--stage-max-avg.".length);
+      stageMaxAvgPairs.push([stageName, Number(value)]);
+    }
+  }
+
   return {
     day: map.get("--day") || null,
     windowDays: Number(map.get("--window-days") || map.get("--windowDays") || 7),
-    json: String(map.get("--json") || "false").toLowerCase() === "true"
+    json: String(map.get("--json") || "false").toLowerCase() === "true",
+    thresholds: {
+      minSuccessRatePct: map.has("--min-success-rate") ? Number(map.get("--min-success-rate")) : undefined,
+      maxFailureRatePct: map.has("--max-failure-rate") ? Number(map.get("--max-failure-rate")) : undefined,
+      maxSkipRatePct: map.has("--max-skip-rate") ? Number(map.get("--max-skip-rate")) : undefined,
+      maxStageAvgMs: Object.fromEntries(stageMaxAvgPairs)
+    }
   };
 }
 
@@ -37,7 +51,8 @@ async function main() {
   const rollupState = await loadRollupState();
   const report = buildRollupWindowReport(rollupState, {
     day: args.day,
-    windowDays: args.windowDays
+    windowDays: args.windowDays,
+    thresholds: args.thresholds
   });
 
   if (args.json) {

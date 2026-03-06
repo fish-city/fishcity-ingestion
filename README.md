@@ -15,12 +15,17 @@ Optional flags:
 - `--window-days <n>`: show last _n_ days (default `7`)
 - `--day YYYY-MM-DD`: show one specific day
 - `--json true`: emit machine-readable JSON (for dashboards/automation)
+- `--min-success-rate <pct>`: override success-rate warning threshold
+- `--max-failure-rate <pct>`: override failure-rate warning threshold
+- `--max-skip-rate <pct>`: override skip-rate warning threshold
+- `--stage-max-avg.<stage>=<ms>`: override stage average latency threshold (repeatable)
 
 Examples:
 
 ```bash
 npm run orchestrator:rollup:report -- --window-days 14
 npm run orchestrator:rollup:report -- --day 2026-03-06 --json true
+npm run orchestrator:rollup:report -- --max-failure-rate 3 --stage-max-avg.snapshot=3500
 ```
 
 ## FCC-41 End-to-End Validation Harness (Staging)
