@@ -1,5 +1,28 @@
 # Fish City Ingestion
 
+## FCC-39 Orchestrator Daily Rollup Ops Report
+
+A lightweight ops-facing report for daily orchestrator rollups is available.
+
+### Run report
+
+```bash
+npm run orchestrator:rollup:report
+```
+
+Optional flags:
+
+- `--window-days <n>`: show last _n_ days (default `7`)
+- `--day YYYY-MM-DD`: show one specific day
+- `--json true`: emit machine-readable JSON (for dashboards/automation)
+
+Examples:
+
+```bash
+npm run orchestrator:rollup:report -- --window-days 14
+npm run orchestrator:rollup:report -- --day 2026-03-06 --json true
+```
+
 ## FCC-41 End-to-End Validation Harness (Staging)
 
 Deterministic fixture-based validation for three staging-critical paths:
