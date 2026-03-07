@@ -2,6 +2,15 @@
 
 Purpose: standardize **report-only dry-run** evidence before backend/mobile teams wire dashboard visibility.
 
+## TL;DR handoff matrix
+
+| Consumer | Use this fixture first | Must handle | Done when |
+|---|---|---|---|
+| Backend API | `fcc39_dryrun_seeded-data-present_dashboard_<date>.json` | seeded + absent payloads, append-only contract | endpoint/adapter returns payload fields unchanged + empty-state safe |
+| Mobile app | same seeded fixture + absent fixture | empty state + normal metrics state | both states render; no crash on missing optional calibration |
+
+---
+
 ## 1) Generate ingestion artifacts (this repo)
 
 From `fishcity-ingestion`:
@@ -28,6 +37,12 @@ Backend team checklist:
 - Preserve backward compatibility when adding fields (append-only contract)
 - Add contract note/openapi update referencing FCC-39 payload shape and FCC-54 rollup alert fields
 - Include dry-run fixture payload in backend tests (use seeded dashboard artifact)
+
+Payload keys to map explicitly:
+- `totals.*`
+- `stageTimings[]`
+- `thresholdStatus`
+- `rollupAlert.{status,shouldAlert,consecutiveWarnDays,requiredConsecutiveWarnDays,reasons}`
 
 Gate checks:
 - Backend returns expected fields unchanged for seeded payload
