@@ -23,6 +23,7 @@ Optional flags:
 - `--calibration-min-days <n>`: minimum day sample required for calibration readiness (default `5`)
 - `--dashboard-output <path>`: write compact dashboard JSON payload (status, rates, stage timings, threshold issues, rollup alert status, optional calibration recommendations)
 - `--alert-consecutive-warn-days <n>`: alert policy trigger (default `2` consecutive WARN days)
+- `--emit-alert-preview true`: evaluate `ingestion.orchestrator.rollup.alert` notification rules and append preview queue items when alert trigger is active
 
 Examples:
 
@@ -32,7 +33,18 @@ npm run orchestrator:rollup:report -- --day 2026-03-06 --json true
 npm run orchestrator:rollup:report -- --max-failure-rate 3 --stage-max-avg.snapshot=3500
 npm run orchestrator:rollup:report -- --window-days 14 --include-calibration true --calibration-min-days 7 --json true
 npm run orchestrator:rollup:report -- --window-days 14 --include-calibration true --dashboard-output state/orchestrator_rollup_dashboard.json
+npm run orchestrator:rollup:report -- --window-days 7 --emit-alert-preview true
 ```
+
+### FCC-54 notifier integration path (preview mode)
+
+`--emit-alert-preview true` bridges rollup alert evaluation into the existing notification rules engine.
+
+- Emits event type: `ingestion.orchestrator.rollup.alert`
+- Evaluates enabled rules in `config/notification_rules.json`
+- Appends matched preview messages to `runs/dev_output/notification_queue_preview.ndjson`
+
+This path is intentionally preview-only (no live push side effects).
 
 ## FCC-41 End-to-End Validation Harness (Staging)
 

@@ -301,6 +301,28 @@ export function buildRollupWindowReport(rollupState = {}, options = {}) {
   return report;
 }
 
+export function buildRollupAlertEvent(report = {}, options = {}) {
+  const alert = report?.alertEvaluation;
+  if (!alert || !alert.shouldAlert) return null;
+
+  const occurredAt = options.occurredAt || report.generatedAt || new Date().toISOString();
+  const latestDay = alert.latestDay || report.selectedDay || null;
+  const reasons = Array.isArray(alert.reasons) ? alert.reasons : [];
+
+  return {
+    event_type: "ingestion.orchestrator.rollup.alert",
+    entity_id: latestDay || "rollup-window",
+    occurred_at: occurredAt,
+    status: alert.status || "alert",
+    reason: reasons[0] || "Rollup thresholds in persistent WARN state.",
+    reasons,
+    consecutive_warn_days: Number(alert.consecutiveWarnDays || 0),
+    required_consecutive_warn_days: Number(alert.requiredConsecutiveWarnDays || 0),
+    window_days: Number(report.windowDays || 0),
+    threshold_status: report?.thresholdEvaluation?.status || "ok"
+  };
+}
+
 export function buildOpsDashboardPayload(report = {}, options = {}) {
   const stageStats = report?.totals?.stageStats || {};
   const stageRows = Object.entries(stageStats)

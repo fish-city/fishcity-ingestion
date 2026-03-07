@@ -18,6 +18,15 @@
       },
       "channel": "preview-log",
       "template": "Updated trip candidate: {{entity_id}} ({{change_count}} changes)"
+    },
+    {
+      "id": "orchestrator-rollup-alert-preview",
+      "enabled": false,
+      "match": {
+        "event_type": "ingestion.orchestrator.rollup.alert"
+      },
+      "channel": "preview-log",
+      "template": "Rollup ALERT {{threshold_status}}: {{reason}} ({{consecutive_warn_days}}/{{required_consecutive_warn_days}} days)"
     }
   ]
 }

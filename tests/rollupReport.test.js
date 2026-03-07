@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildDayReport,
   buildOpsDashboardPayload,
+  buildRollupAlertEvent,
   buildRollupWindowReport,
   buildThresholdCalibration,
   evaluateRollupAlerts,
@@ -139,6 +140,53 @@ test("evaluateRollupAlerts enforces consecutive WARN day policy", () => {
   assert.equal(alert.shouldAlert, true);
   assert.equal(alert.status, "alert");
   assert.equal(alert.consecutiveWarnDays, 2);
+});
+
+test("buildRollupAlertEvent returns event payload when alert trigger is active", () => {
+  const report = buildRollupWindowReport({
+    days: {
+      "2026-03-05": {
+        runsTotal: 2,
+        completed: 1,
+        failed: 1,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 16000 },
+        stageMaxMs: { snapshot: 9000 }
+      },
+      "2026-03-06": {
+        runsTotal: 2,
+        completed: 1,
+        failed: 1,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 15000 },
+        stageMaxMs: { snapshot: 8000 }
+      }
+    }
+  }, { windowDays: 2 });
+
+  const event = buildRollupAlertEvent(report);
+  assert.equal(event.event_type, "ingestion.orchestrator.rollup.alert");
+  assert.equal(event.entity_id, "2026-03-06");
+  assert.equal(event.consecutive_warn_days, 2);
+  assert.equal(event.required_consecutive_warn_days, 2);
+});
+
+test("buildRollupAlertEvent returns null when alert trigger is not active", () => {
+  const report = buildRollupWindowReport({
+    days: {
+      "2026-03-06": {
+        runsTotal: 2,
+        completed: 2,
+        failed: 0,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 1200 },
+        stageMaxMs: { snapshot: 800 }
+      }
+    }
+  }, { windowDays: 1 });
+
+  const event = buildRollupAlertEvent(report);
+  assert.equal(event, null);
 });
 
 test("buildRollupWindowReport supports threshold overrides", () => {

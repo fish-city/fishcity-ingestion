@@ -2,10 +2,16 @@ import fs from "fs/promises";
 import path from "path";
 import {
   buildOpsDashboardPayload,
+  buildRollupAlertEvent,
   buildRollupWindowReport,
   formatRollupReportText,
   loadRollupState
 } from "../pipelines/fishing_reports/rollupReport.js";
+import {
+  appendNotificationPreview,
+  evaluateRules,
+  loadNotificationRules
+} from "../core/events/notificationRules.js";
 
 function parseArgs(argv = []) {
   const map = new Map();
@@ -43,6 +49,7 @@ function parseArgs(argv = []) {
     includeCalibration: String(map.get("--include-calibration") || "false").toLowerCase() === "true",
     calibrationMinDays: Number(map.get("--calibration-min-days") || 5),
     dashboardOutput: map.get("--dashboard-output") || null,
+    emitAlertPreview: String(map.get("--emit-alert-preview") || "false").toLowerCase() === "true",
     alertPolicy: {
       consecutiveWarnDays: map.has("--alert-consecutive-warn-days")
         ? Number(map.get("--alert-consecutive-warn-days"))
@@ -74,6 +81,20 @@ async function main() {
     const outputPath = path.resolve(args.dashboardOutput);
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(outputPath, `${JSON.stringify(dashboardPayload, null, 2)}\n`, "utf8");
+  }
+
+  if (args.emitAlertPreview) {
+    const alertEvent = buildRollupAlertEvent(report);
+    if (alertEvent) {
+      const rules = await loadNotificationRules();
+      const notifications = evaluateRules(alertEvent, rules);
+      await appendNotificationPreview(notifications);
+      if (!args.json) {
+        console.log(`Notifier preview enqueued: ${notifications.length} item(s).`);
+      }
+    } else if (!args.json) {
+      console.log("Notifier preview skipped: no rollup alert trigger.");
+    }
   }
 
   if (args.json) {
