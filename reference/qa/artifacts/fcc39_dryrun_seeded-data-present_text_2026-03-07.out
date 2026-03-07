@@ -1,0 +1,27 @@
+
+> fish-city-ingestion@0.2.0 orchestrator:rollup:report
+> node scripts/orchestrator_rollup_report.mjs --window-days 7 --include-calibration true --dashboard-output state/orchestrator_rollup_dashboard_dryrun_seeded.json
+
+Fish City Ingestion Orchestrator — Daily Rollups
+Generated: 2026-03-07T18:47:54.261Z
+
+Window: last 7 day(s)
+Totals: runs=48 completed=43 failed=5 skipped=0 success=89.6%
+
+Per-day:
+- 2026-03-03: runs=12 completed=11 failed=1 skipped=0 success=91.7% lastRunAt=2026-03-03T23:58:00.000Z
+- 2026-03-04: runs=12 completed=10 failed=2 skipped=0 success=83.3% lastRunAt=2026-03-04T23:58:00.000Z
+- 2026-03-05: runs=11 completed=9 failed=2 skipped=0 success=81.8% lastRunAt=2026-03-05T23:57:00.000Z
+- 2026-03-06: runs=13 completed=13 failed=0 skipped=0 success=100% lastRunAt=2026-03-06T23:59:00.000Z
+
+Stage timings (window totals):
+- diff: avg=571ms max=1300ms total=27400ms
+- push: avg=652ms max=1800ms total=31300ms
+- rules: avg=194ms max=500ms total=9300ms
+- snapshot: avg=3365ms max=10800ms total=161500ms
+- totalPipeline: avg=4781ms max=12800ms total=229500ms
+
+Threshold status: OK
+Rollup alert: OK (consecutive WARN days 0/2)
+
+Threshold calibration: NOT_READY (4/5 day samples)

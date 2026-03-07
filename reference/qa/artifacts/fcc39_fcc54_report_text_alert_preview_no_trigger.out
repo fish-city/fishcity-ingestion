@@ -1,0 +1,8 @@
+
+> fish-city-ingestion@0.2.0 orchestrator:rollup:report
+> node scripts/orchestrator_rollup_report.mjs --window-days 7 --emit-alert-preview true
+
+Notifier preview skipped: no rollup alert trigger.
+Fish City Ingestion Orchestrator — Daily Rollups
+Generated: 2026-03-07T18:41:33.780Z
+No rollup data found.

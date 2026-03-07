@@ -1,0 +1,80 @@
+{
+  "generatedAt": "2026-03-07T18:47:54.261Z",
+  "window": {
+    "selectedDay": null,
+    "windowDays": 7,
+    "availableDayCount": 4
+  },
+  "totals": {
+    "runsTotal": 48,
+    "completed": 43,
+    "failed": 5,
+    "skipped": 0,
+    "successRatePct": 89.6,
+    "failureRatePct": 10.4,
+    "skipRatePct": 0
+  },
+  "stageTimings": [
+    {
+      "stage": "diff",
+      "avgMs": 571,
+      "maxMs": 1300,
+      "totalMs": 27400
+    },
+    {
+      "stage": "push",
+      "avgMs": 652,
+      "maxMs": 1800,
+      "totalMs": 31300
+    },
+    {
+      "stage": "rules",
+      "avgMs": 194,
+      "maxMs": 500,
+      "totalMs": 9300
+    },
+    {
+      "stage": "snapshot",
+      "avgMs": 3365,
+      "maxMs": 10800,
+      "totalMs": 161500
+    },
+    {
+      "stage": "totalPipeline",
+      "avgMs": 4781,
+      "maxMs": 12800,
+      "totalMs": 229500
+    }
+  ],
+  "thresholdStatus": "ok",
+  "thresholdIssues": [],
+  "rollupAlert": {
+    "status": "ok",
+    "shouldAlert": false,
+    "consecutiveWarnDays": 0,
+    "requiredConsecutiveWarnDays": 2,
+    "reasons": []
+  },
+  "thresholdCalibration": {
+    "ready": false,
+    "sampleSizeDays": 4,
+    "minDays": 5,
+    "recommended": {
+      "minSuccessRatePct": null,
+      "maxFailureRatePct": null,
+      "maxSkipRatePct": null,
+      "maxStageAvgMs": {
+        "snapshot": null,
+        "diff": null,
+        "rules": null,
+        "push": null,
+        "totalPipeline": null
+      }
+    },
+    "recommendedCliArgs": []
+  },
+  "source": {
+    "kind": "ingestion_orchestrator_daily_rollups",
+    "version": "v1"
+  }
+}

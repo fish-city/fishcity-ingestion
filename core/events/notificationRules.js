@@ -30,9 +30,19 @@ export function evaluateRules(event, rules) {
 }
 
 function renderTemplate(template, event) {
-  return template
-    .replaceAll("{{entity_id}}", String(event.entity_id || ""))
-    .replaceAll("{{change_count}}", String((event.changes || []).length));
+  return template.replace(/{{\s*([\w.]+)\s*}}/g, (_, token) => {
+    const value = token === "change_count"
+      ? (event.changes || []).length
+      : readTokenValue(event, token);
+    return value == null ? "" : String(value);
+  });
+}
+
+function readTokenValue(source, token) {
+  return token.split(".").reduce((acc, key) => {
+    if (acc == null || typeof acc !== "object") return undefined;
+    return acc[key];
+  }, source);
 }
 
 export async function appendNotificationPreview(items) {

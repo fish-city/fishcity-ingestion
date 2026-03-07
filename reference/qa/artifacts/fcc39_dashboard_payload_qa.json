@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-03-07T18:42:12.952Z",
+  "window": {
+    "selectedDay": null,
+    "windowDays": 4,
+    "availableDayCount": 4
+  },
+  "totals": {
+    "runsTotal": 48,
+    "completed": 43,
+    "failed": 5,
+    "skipped": 0,
+    "successRatePct": 89.6,
+    "failureRatePct": 10.4,
+    "skipRatePct": 0
+  },
+  "stageTimings": [
+    {
+      "stage": "diff",
+      "avgMs": 571,
+      "maxMs": 1300,
+      "totalMs": 27400
+    },
+    {
+      "stage": "push",
+      "avgMs": 652,
+      "maxMs": 1800,
+      "totalMs": 31300
+    },
+    {
+      "stage": "rules",
+      "avgMs": 194,
+      "maxMs": 500,
+      "totalMs": 9300
+    },
+    {
+      "stage": "snapshot",
+      "avgMs": 3365,
+      "maxMs": 10800,
+      "totalMs": 161500
+    },
+    {
+      "stage": "totalPipeline",
+      "avgMs": 4781,
+      "maxMs": 12800,
+      "totalMs": 229500
+    }
+  ],
+  "thresholdStatus": "ok",
+  "thresholdIssues": [],
+  "rollupAlert": {
+    "status": "ok",
+    "shouldAlert": false,
+    "consecutiveWarnDays": 0,
+    "requiredConsecutiveWarnDays": 2,
+    "reasons": []
+  },
+  "thresholdCalibration": {
+    "ready": true,
+    "sampleSizeDays": 4,
+    "minDays": 3,
+    "recommended": {
+      "minSuccessRatePct": 82,
+      "maxFailureRatePct": 18,
+      "maxSkipRatePct": 0,
+      "maxStageAvgMs": {
+        "snapshot": 5355,
+        "diff": 644,
+        "rules": 218,
+        "push": 730,
+        "totalPipeline": 6945
+      }
+    },
+    "recommendedCliArgs": [
+      "--min-success-rate 82",
+      "--max-failure-rate 18",
+      "--max-skip-rate 0",
+      "--stage-max-avg.snapshot=5355",
+      "--stage-max-avg.diff=644",
+      "--stage-max-avg.rules=218",
+      "--stage-max-avg.push=730",
+      "--stage-max-avg.totalPipeline=6945"
+    ]
+  },
+  "source": {
+    "kind": "ingestion_orchestrator_daily_rollups",
+    "version": "v1"
+  }
+}
