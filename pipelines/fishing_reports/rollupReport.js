@@ -15,6 +15,10 @@ export const DEFAULT_ROLLUP_THRESHOLDS = {
   }
 };
 
+export const DEFAULT_ROLLUP_ALERT_POLICY = {
+  consecutiveWarnDays: 2
+};
+
 function roundToInt(value) {
   return Math.round(Number(value || 0));
 }
@@ -198,6 +202,42 @@ export function evaluateRollupThresholds(report = {}, overrides = {}) {
   };
 }
 
+export function evaluateRollupAlerts(report = {}, options = {}) {
+  const policy = {
+    ...DEFAULT_ROLLUP_ALERT_POLICY,
+    ...(options.alertPolicy || {})
+  };
+
+  const requiredConsecutiveWarnDays = Math.max(Number(policy.consecutiveWarnDays || 2), 1);
+  const dayEvaluations = Array.isArray(report.days)
+    ? report.days.map((day) => ({
+      day: day.day,
+      status: evaluateRollupThresholds({ totals: day }, options.thresholds || {}).status
+    }))
+    : [];
+
+  let consecutiveWarnDays = 0;
+  for (let idx = dayEvaluations.length - 1; idx >= 0; idx -= 1) {
+    if (dayEvaluations[idx].status !== "warn") break;
+    consecutiveWarnDays += 1;
+  }
+
+  const shouldAlert =
+    (report?.thresholdEvaluation?.status === "warn") &&
+    (consecutiveWarnDays >= requiredConsecutiveWarnDays);
+
+  return {
+    shouldAlert,
+    status: shouldAlert ? "alert" : "ok",
+    requiredConsecutiveWarnDays,
+    consecutiveWarnDays,
+    latestDay: dayEvaluations.length ? dayEvaluations[dayEvaluations.length - 1].day : null,
+    reasons: shouldAlert
+      ? [`Threshold WARN persisted for ${consecutiveWarnDays} consecutive day(s) (policy: ${requiredConsecutiveWarnDays}).`]
+      : []
+  };
+}
+
 export function buildRollupWindowReport(rollupState = {}, options = {}) {
   const days = rollupState.days && typeof rollupState.days === "object" ? rollupState.days : {};
   const availableDayKeys = Object.keys(days).sort();
@@ -249,6 +289,10 @@ export function buildRollupWindowReport(rollupState = {}, options = {}) {
   };
 
   report.thresholdEvaluation = evaluateRollupThresholds(report, options.thresholds || {});
+  report.alertEvaluation = evaluateRollupAlerts(report, {
+    thresholds: options.thresholds || {},
+    alertPolicy: options.alertPolicy || {}
+  });
   if (options.includeCalibration) {
     report.thresholdCalibration = buildThresholdCalibration(report, {
       minDays: options.calibrationMinDays
@@ -310,6 +354,13 @@ export function buildOpsDashboardPayload(report = {}, options = {}) {
     stageTimings: stageRows,
     thresholdStatus: report?.thresholdEvaluation?.status || "ok",
     thresholdIssues: issues,
+    rollupAlert: {
+      status: report?.alertEvaluation?.status || "ok",
+      shouldAlert: Boolean(report?.alertEvaluation?.shouldAlert),
+      consecutiveWarnDays: Number(report?.alertEvaluation?.consecutiveWarnDays || 0),
+      requiredConsecutiveWarnDays: Number(report?.alertEvaluation?.requiredConsecutiveWarnDays || 0),
+      reasons: Array.isArray(report?.alertEvaluation?.reasons) ? report.alertEvaluation.reasons : []
+    },
     thresholdCalibration: calibration
       ? {
           ready: Boolean(calibration.ready),
@@ -362,6 +413,13 @@ export function formatRollupReportText(report = {}) {
   if (Array.isArray(thresholdEvaluation.issues) && thresholdEvaluation.issues.length > 0) {
     for (const issue of thresholdEvaluation.issues) {
       lines.push(`- ${issue.message}`);
+    }
+  }
+
+  if (report.alertEvaluation) {
+    lines.push(`Rollup alert: ${report.alertEvaluation.status.toUpperCase()} (consecutive WARN days ${report.alertEvaluation.consecutiveWarnDays}/${report.alertEvaluation.requiredConsecutiveWarnDays})`);
+    for (const reason of report.alertEvaluation.reasons || []) {
+      lines.push(`- ${reason}`);
     }
   }
 

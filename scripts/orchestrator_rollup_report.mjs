@@ -43,6 +43,11 @@ function parseArgs(argv = []) {
     includeCalibration: String(map.get("--include-calibration") || "false").toLowerCase() === "true",
     calibrationMinDays: Number(map.get("--calibration-min-days") || 5),
     dashboardOutput: map.get("--dashboard-output") || null,
+    alertPolicy: {
+      consecutiveWarnDays: map.has("--alert-consecutive-warn-days")
+        ? Number(map.get("--alert-consecutive-warn-days"))
+        : undefined
+    },
     thresholds: {
       minSuccessRatePct: map.has("--min-success-rate") ? Number(map.get("--min-success-rate")) : undefined,
       maxFailureRatePct: map.has("--max-failure-rate") ? Number(map.get("--max-failure-rate")) : undefined,
@@ -60,7 +65,8 @@ async function main() {
     windowDays: args.windowDays,
     includeCalibration: args.includeCalibration,
     calibrationMinDays: args.calibrationMinDays,
-    thresholds: args.thresholds
+    thresholds: args.thresholds,
+    alertPolicy: args.alertPolicy
   });
 
   if (args.dashboardOutput) {

@@ -5,6 +5,7 @@ import {
   buildOpsDashboardPayload,
   buildRollupWindowReport,
   buildThresholdCalibration,
+  evaluateRollupAlerts,
   evaluateRollupThresholds,
   formatRollupReportText
 } from "../pipelines/fishing_reports/rollupReport.js";
@@ -108,6 +109,38 @@ test("evaluateRollupThresholds reports threshold issues", () => {
   assert.ok(evaluation.issues.some((issue) => issue.kind === "stage_avg_high" && issue.stage === "snapshot"));
 });
 
+test("evaluateRollupAlerts enforces consecutive WARN day policy", () => {
+  const report = buildRollupWindowReport({
+    days: {
+      "2026-03-05": {
+        runsTotal: 2,
+        completed: 1,
+        failed: 1,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 16000 },
+        stageMaxMs: { snapshot: 9000 }
+      },
+      "2026-03-06": {
+        runsTotal: 2,
+        completed: 1,
+        failed: 1,
+        skipped: 0,
+        stageTotalsMs: { snapshot: 15000 },
+        stageMaxMs: { snapshot: 8000 }
+      }
+    }
+  }, { windowDays: 2 });
+
+  const alert = evaluateRollupAlerts(report, {
+    thresholds: {},
+    alertPolicy: { consecutiveWarnDays: 2 }
+  });
+
+  assert.equal(alert.shouldAlert, true);
+  assert.equal(alert.status, "alert");
+  assert.equal(alert.consecutiveWarnDays, 2);
+});
+
 test("buildRollupWindowReport supports threshold overrides", () => {
   const report = buildRollupWindowReport({
     days: {
@@ -203,6 +236,8 @@ test("buildOpsDashboardPayload emits compact status payload for dashboard consum
   assert.equal(payload.stageTimings[0].stage, "snapshot");
   assert.equal(payload.thresholdStatus, "warn");
   assert.ok(payload.thresholdIssues.some((issue) => issue.kind === "stage_avg_high"));
+  assert.equal(payload.rollupAlert.status, "ok");
+  assert.equal(payload.rollupAlert.shouldAlert, false);
   assert.equal(payload.thresholdCalibration.ready, true);
   assert.ok(payload.thresholdCalibration.recommendedCliArgs.some((arg) => arg.startsWith("--stage-max-avg.snapshot=")));
 });

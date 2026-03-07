@@ -21,7 +21,8 @@ Optional flags:
 - `--stage-max-avg.<stage>=<ms>`: override stage average latency threshold (repeatable)
 - `--include-calibration true`: add threshold calibration recommendation block to output
 - `--calibration-min-days <n>`: minimum day sample required for calibration readiness (default `5`)
-- `--dashboard-output <path>`: write compact dashboard JSON payload (status, rates, stage timings, threshold issues, optional calibration recommendations)
+- `--dashboard-output <path>`: write compact dashboard JSON payload (status, rates, stage timings, threshold issues, rollup alert status, optional calibration recommendations)
+- `--alert-consecutive-warn-days <n>`: alert policy trigger (default `2` consecutive WARN days)
 
 Examples:
 
