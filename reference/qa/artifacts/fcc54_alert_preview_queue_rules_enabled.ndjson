@@ -1,0 +1,1 @@
+{"rule_id":"orchestrator-rollup-alert-preview","channel":"preview-log","message":"Rollup ALERT warn: Threshold WARN persisted for 2 consecutive day(s) (policy: 2). (2/2 days)","event_type":"ingestion.orchestrator.rollup.alert","entity_id":"2026-03-06","occurred_at":"2026-03-07T18:42:33.781Z"}

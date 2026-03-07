@@ -1,0 +1,24 @@
+
+> fish-city-ingestion@0.2.0 orchestrator:rollup:report
+> node scripts/orchestrator_rollup_report.mjs --window-days 2 --emit-alert-preview true
+
+Notifier preview enqueued: 1 item(s).
+Fish City Ingestion Orchestrator — Daily Rollups
+Generated: 2026-03-07T18:42:33.781Z
+
+Window: last 2 day(s)
+Totals: runs=20 completed=16 failed=4 skipped=0 success=80%
+
+Per-day:
+- 2026-03-05: runs=10 completed=8 failed=2 skipped=0 success=80% lastRunAt=2026-03-05T23:50:00.000Z
+- 2026-03-06: runs=10 completed=8 failed=2 skipped=0 success=80% lastRunAt=2026-03-06T23:50:00.000Z
+
+Stage timings (window totals):
+- push: avg=875ms max=2100ms total=17500ms
+- snapshot: avg=6900ms max=12000ms total=138000ms
+- totalPipeline: avg=8250ms max=14000ms total=165000ms
+
+Threshold status: WARN
+- Stage snapshot avg 6900ms above threshold 4000ms
+Rollup alert: ALERT (consecutive WARN days 2/2)
+- Threshold WARN persisted for 2 consecutive day(s) (policy: 2).

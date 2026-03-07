@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "days": {
+    "2026-03-03": {
+      "runsTotal": 12,
+      "completed": 11,
+      "failed": 1,
+      "skipped": 0,
+      "lastRunAt": "2026-03-03T23:58:00.000Z",
+      "stageTotalsMs": {
+        "snapshot": 18000,
+        "diff": 6000,
+        "rules": 2200,
+        "push": 7200,
+        "totalPipeline": 33400
+      },
+      "stageMaxMs": {
+        "snapshot": 3200,
+        "diff": 1100,
+        "rules": 450,
+        "push": 1600,
+        "totalPipeline": 5500
+      }
+    },
+    "2026-03-04": {
+      "runsTotal": 12,
+      "completed": 10,
+      "failed": 2,
+      "skipped": 0,
+      "lastRunAt": "2026-03-04T23:58:00.000Z",
+      "stageTotalsMs": {
+        "snapshot": 64000,
+        "diff": 7400,
+        "rules": 2600,
+        "push": 8300,
+        "totalPipeline": 82300
+      },
+      "stageMaxMs": {
+        "snapshot": 10800,
+        "diff": 1300,
+        "rules": 500,
+        "push": 1800,
+        "totalPipeline": 12800
+      }
+    },
+    "2026-03-05": {
+      "runsTotal": 11,
+      "completed": 9,
+      "failed": 2,
+      "skipped": 0,
+      "lastRunAt": "2026-03-05T23:57:00.000Z",
+      "stageTotalsMs": {
+        "snapshot": 59000,
+        "diff": 7200,
+        "rules": 2400,
+        "push": 8200,
+        "totalPipeline": 76800
+      },
+      "stageMaxMs": {
+        "snapshot": 9700,
+        "diff": 1200,
+        "rules": 470,
+        "push": 1700,
+        "totalPipeline": 12100
+      }
+    },
+    "2026-03-06": {
+      "runsTotal": 13,
+      "completed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "lastRunAt": "2026-03-06T23:59:00.000Z",
+      "stageTotalsMs": {
+        "snapshot": 20500,
+        "diff": 6800,
+        "rules": 2100,
+        "push": 7600,
+        "totalPipeline": 37000
+      },
+      "stageMaxMs": {
+        "snapshot": 3300,
+        "diff": 1100,
+        "rules": 460,
+        "push": 1650,
+        "totalPipeline": 5600
+      }
+    }
+  }
+}

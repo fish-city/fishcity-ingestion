@@ -1,0 +1,99 @@
+
+> fish-city-ingestion@0.2.0 test
+> node --test tests/*.test.js
+
+✔ shouldForceExternalProvider honors truthy flags (0.623542ms)
+✔ classifyLocalProviderFailure returns timeout reason for AbortError (0.065125ms)
+✔ classifyLocalProviderFailure returns contract reason for contract parse/validation errors (0.104916ms)
+✔ shouldFallbackToExternal only allows policy-defined local-first fallback reasons (0.639708ms)
+✔ shouldFallbackToExternal allows explicit override even without local error (0.0505ms)
+✔ parseReplayArgs enforces required date range (1.481291ms)
+✔ parseReplayArgs defaults to safe mode (dry run true, with push false) (0.104125ms)
+✔ parseReplayArgs reads explicit push flag and location id (0.062708ms)
+✔ buildDiffEvent emits created when no prior snapshot (2.445375ms)
+✔ buildDiffEvent emits updated changes when digest differs (0.234916ms)
+✔ buildLocalModelReportPrompt includes strict response contract guidance (0.63875ms)
+✔ buildLocalModelRuleDecisionPrompt includes decision contract (0.070916ms)
+✔ validateLocalModelReportOutput accepts valid payload (0.6745ms)
+✔ validateLocalModelReportOutput rejects invalid payload (0.082ms)
+✔ validateLocalModelRuleDecisionOutput accepts valid payload (0.080083ms)
+✔ validateLocalModelRuleDecisionOutput rejects invalid payload (0.057041ms)
+✔ evaluateRules returns only enabled matching rules (0.69025ms)
+✔ evaluateRules renders generic template tokens for notifier payloads (0.068125ms)
+[ollama] Invalid report normalization output {
+  errors: [ '$root.anglers: expected integer|null, got string' ],
+  payload: {
+    trip_name: 'Overnight',
+    trip_date_time: null,
+    landing_name: null,
+    boat_name: null,
+    trip_type: null,
+    anglers: '12',
+    fish: [ [Object] ],
+    report_text: 'yellowtail and tuna'
+  }
+}
+✔ buildOllamaGenerateRequest creates expected request contract (0.688375ms)
+✔ parseOllamaGenerateResponse parses valid JSON report contract (0.18925ms)
+✔ parseOllamaGenerateResponse throws on invalid report contract (1.210292ms)
+{"ts":"2026-03-07T18:43:03.366Z","event":"run_started","runId":"test-sequence-1","stageOrder":["snapshot","diff","rules","push"]}
+{"ts":"2026-03-07T18:43:03.366Z","event":"stage_started","runId":"test-sequence-1","stage":"snapshot"}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_completed","runId":"test-sequence-1","stage":"snapshot","durationMs":1}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_started","runId":"test-sequence-1","stage":"diff"}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_completed","runId":"test-sequence-1","stage":"diff","durationMs":0}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_started","runId":"test-sequence-1","stage":"rules"}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_completed","runId":"test-sequence-1","stage":"rules","durationMs":0}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_started","runId":"test-sequence-1","stage":"push"}
+{"ts":"2026-03-07T18:43:03.367Z","event":"stage_completed","runId":"test-sequence-1","stage":"push","durationMs":0}
+{"ts":"2026-03-07T18:43:03.368Z","event":"run_completed","runId":"test-sequence-1","stageTimingsMs":{"snapshot":1,"diff":0,"rules":0,"push":0}}
+✔ orchestrator runs stages in snapshot->diff->rules->push order and propagates runId (11.420709ms)
+{"ts":"2026-03-07T18:43:03.371Z","event":"run_started","runId":"test-idempotency-1","stageOrder":["snapshot","diff","rules","push"]}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_started","runId":"test-idempotency-1","stage":"snapshot"}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_completed","runId":"test-idempotency-1","stage":"snapshot","durationMs":0}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_started","runId":"test-idempotency-1","stage":"diff"}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_completed","runId":"test-idempotency-1","stage":"diff","durationMs":0}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_started","runId":"test-idempotency-1","stage":"rules"}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_completed","runId":"test-idempotency-1","stage":"rules","durationMs":0}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_started","runId":"test-idempotency-1","stage":"push"}
+{"ts":"2026-03-07T18:43:03.371Z","event":"stage_completed","runId":"test-idempotency-1","stage":"push","durationMs":0}
+{"ts":"2026-03-07T18:43:03.371Z","event":"run_completed","runId":"test-idempotency-1","stageTimingsMs":{"snapshot":0,"diff":0,"rules":0,"push":0}}
+{"ts":"2026-03-07T18:43:03.372Z","event":"run_skipped","runId":"test-idempotency-1","reason":"duplicate_completed_run","previousStatus":"completed"}
+✔ orchestrator idempotency scaffold skips duplicate runId (2.672416ms)
+✔ updateDailyRollupDay aggregates status counts and stage timing stats (0.125042ms)
+{"ts":"2026-03-07T18:43:03.373Z","event":"run_started","runId":"test-daily-rollup-1","stageOrder":["snapshot","diff","rules","push"]}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_started","runId":"test-daily-rollup-1","stage":"snapshot"}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_completed","runId":"test-daily-rollup-1","stage":"snapshot","durationMs":0}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_started","runId":"test-daily-rollup-1","stage":"diff"}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_completed","runId":"test-daily-rollup-1","stage":"diff","durationMs":0}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_started","runId":"test-daily-rollup-1","stage":"rules"}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_completed","runId":"test-daily-rollup-1","stage":"rules","durationMs":0}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_started","runId":"test-daily-rollup-1","stage":"push"}
+{"ts":"2026-03-07T18:43:03.373Z","event":"stage_completed","runId":"test-daily-rollup-1","stage":"push","durationMs":0}
+{"ts":"2026-03-07T18:43:03.374Z","event":"run_completed","runId":"test-daily-rollup-1","stageTimingsMs":{"snapshot":0,"diff":0,"rules":0,"push":0}}
+{"ts":"2026-03-07T18:43:03.374Z","event":"run_skipped","runId":"test-daily-rollup-1","reason":"duplicate_completed_run","previousStatus":"completed"}
+✔ orchestrator writes daily rollup entries for completed and skipped runs (2.618042ms)
+✔ computeCooldownMs increases exponentially and respects max cap (0.625083ms)
+✔ recordPushFailure schedules retry before max attempts (0.10725ms)
+✔ recordPushFailure dead-letters on exhausted retries (0.719ms)
+✔ markPushSuccess removes recovery state for url (0.094375ms)
+✔ buildDayReport computes rates and per-stage avg/max (0.742042ms)
+✔ buildRollupWindowReport picks latest N days and aggregates totals (2.4535ms)
+✔ formatRollupReportText includes totals and per-day lines (0.265583ms)
+✔ evaluateRollupThresholds reports threshold issues (0.10475ms)
+✔ evaluateRollupAlerts enforces consecutive WARN day policy (0.107542ms)
+✔ buildRollupAlertEvent returns event payload when alert trigger is active (0.124333ms)
+✔ buildRollupAlertEvent returns null when alert trigger is not active (0.067292ms)
+✔ buildRollupWindowReport supports threshold overrides (0.065917ms)
+✔ buildThresholdCalibration returns recommended thresholds when sample is ready (0.198ms)
+✔ buildRollupWindowReport can include threshold calibration in output (0.622584ms)
+✔ buildOpsDashboardPayload emits compact status payload for dashboard consumers (0.303709ms)
+✔ stableStringify sorts object keys recursively (1.174958ms)
+✔ snapshot digest is deterministic for same semantic payload (0.353375ms)
+ℹ tests 42
+ℹ suites 0
+ℹ pass 42
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 93.619125
