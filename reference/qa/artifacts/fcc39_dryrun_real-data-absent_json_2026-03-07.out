@@ -1,0 +1,40 @@
+
+> fish-city-ingestion@0.2.0 orchestrator:rollup:report
+> node scripts/orchestrator_rollup_report.mjs --json true
+
+{
+  "generatedAt": "2026-03-07T18:47:53.872Z",
+  "windowDays": 7,
+  "selectedDay": null,
+  "availableDays": [],
+  "totals": {
+    "runsTotal": 0,
+    "completed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "stageStats": {},
+    "successRatePct": 0,
+    "failureRatePct": 0,
+    "skipRatePct": 0
+  },
+  "days": [],
+  "thresholdEvaluation": {
+    "thresholds": {
+      "maxStageAvgMs": {
+        "snapshot": 4000,
+        "push": 5000,
+        "totalPipeline": 12000
+      }
+    },
+    "status": "ok",
+    "issues": []
+  },
+  "alertEvaluation": {
+    "shouldAlert": false,
+    "status": "ok",
+    "requiredConsecutiveWarnDays": 2,
+    "consecutiveWarnDays": 0,
+    "latestDay": null,
+    "reasons": []
+  }
+}

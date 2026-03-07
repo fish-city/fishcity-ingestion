@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-03-07T18:47:54.000Z",
+  "window": {
+    "selectedDay": null,
+    "windowDays": 7,
+    "availableDayCount": 0
+  },
+  "totals": {
+    "runsTotal": 0,
+    "completed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "successRatePct": 0,
+    "failureRatePct": 0,
+    "skipRatePct": 0
+  },
+  "stageTimings": [],
+  "thresholdStatus": "ok",
+  "thresholdIssues": [],
+  "rollupAlert": {
+    "status": "ok",
+    "shouldAlert": false,
+    "consecutiveWarnDays": 0,
+    "requiredConsecutiveWarnDays": 2,
+    "reasons": []
+  },
+  "thresholdCalibration": {
+    "ready": false,
+    "sampleSizeDays": 0,
+    "minDays": 5,
+    "recommended": {
+      "minSuccessRatePct": null,
+      "maxFailureRatePct": null,
+      "maxSkipRatePct": null,
+      "maxStageAvgMs": {}
+    },
+    "recommendedCliArgs": []
+  },
+  "source": {
+    "kind": "ingestion_orchestrator_daily_rollups",
+    "version": "v1"
+  }
+}

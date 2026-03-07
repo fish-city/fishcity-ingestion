@@ -46,6 +46,18 @@ npm run orchestrator:rollup:report -- --window-days 7 --emit-alert-preview true
 
 This path is intentionally preview-only (no live push side effects).
 
+### Dry-run readiness matrix (report-only)
+
+Run both report-only scenarios (real data absent + seeded data present) and capture artifacts:
+
+```bash
+./scripts/run_rollup_dryrun_matrix.sh
+```
+
+Handoff checklist for backend/mobile visibility path:
+
+- `reference/fcc39_fcc54_backend_mobile_handoff_checklist.md`
+
 ## FCC-41 End-to-End Validation Harness (Staging)
 
 Deterministic fixture-based validation for three staging-critical paths:
