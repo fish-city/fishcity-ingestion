@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { normalizeReportWithAI } from "../../core/aiNormalizer.js";
 import { referenceCache } from "../../core/referenceCache.js";
 import { buildCreateTripPayload } from "./payload.js";
+import { tripExists, buildCompositeKey } from "../../core/dedupCheck.js";
 
 dotenv.config();
 
@@ -278,6 +279,20 @@ async function fetchReport(url) {
         continue;
       }
       if (!userId) throw new Error("Missing user_id");
+
+      // ── Composite-key dedup check ──────────────────────────────────
+      const dedupResult = await tripExists(
+        process.env.API_BASE_URL,
+        referenceCache.token,
+        process.env.ADMIN_API_KEY,
+        { boatId: boatNameId, landingId, tripDate: normalized.trip_date_time, locationId }
+      );
+      if (dedupResult.exists) {
+        console.log(`Skipped ${url}: DUPLICATE_COMPOSITE_KEY (existing trip ${dedupResult.existingTripId}, key: ${dedupResult.compositeKey})`);
+        processed.add(url);
+        continue;
+      }
+      // ───────────────────────────────────────────────────────────────
 
       const form = await buildCreateTripPayload(normalized, {
         locationId,

@@ -7,25 +7,24 @@ dotenv.config();
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 
 const config = {
-  url: "https://eldorado.fishingreservations.net/sales/",
-  bookingBase: "https://eldorado.fishingreservations.net/sales/user.php?trip_id=",
-  partner: "eldorado",
-  boatId: Number(process.env.ELDORADO_BOAT_ID || 104),
-  defaultPollMinutes: 240
+  url: "https://oceanside.fishingreservations.net/sales/",
+  bookingBase: "https://oceanside.fishingreservations.net/sales/user.php?trip_id=",
+  partner: "oceanside",
+  boatId: Number(process.env.OCEANSIDE_BOAT_ID || 0),
+  defaultPollMinutes: 360 // conservative until validated
 };
 
 (async () => {
   const { current, changes, activity } = await scrapePartnerSchedule(config);
 
-  // Send push notifications for schedule changes
   if (changes.length > 0) {
     const notifyStats = await sendPartnerNotifications(changes, {
       partner: config.partner,
-      locationId: 1, // San Diego
+      locationId: 28, // Oceanside
       boatId: config.boatId
     });
-    console.log(`[eldorado] Notification stats:`, notifyStats);
+    console.log(`[oceanside] Notification stats:`, notifyStats);
   } else {
-    console.log(`[eldorado] No changes — no notifications needed`);
+    console.log(`[oceanside] No changes — no notifications needed`);
   }
 })();
