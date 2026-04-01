@@ -1,10 +1,8 @@
 import dotenv from "dotenv";
-import { scrapePartnerSchedule } from "../../core/partnerScraper.js";
+import { scrapePartnerSchedule, loadPreviousState } from "../../core/partnerScraper.js";
 import { sendPartnerNotifications } from "../../core/notifier.js";
 
 dotenv.config();
-
-const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 
 const config = {
   url: "https://elpatron.fishingreservations.net/sales/",
@@ -15,16 +13,18 @@ const config = {
 };
 
 (async () => {
+  const previous = await loadPreviousState(config.partner);
+  const isFirstRun = previous.length === 0;
+
   const { current, changes, activity } = await scrapePartnerSchedule(config);
 
-  if (changes.length > 0) {
-    const notifyStats = await sendPartnerNotifications(changes, {
-      partner: config.partner,
-      locationId: 1, // San Diego
-      boatId: config.boatId
-    });
-    console.log(`[elpatron] Notification stats:`, notifyStats);
-  } else {
-    console.log(`[elpatron] No changes — no notifications needed`);
-  }
+  const notifyStats = await sendPartnerNotifications(changes, {
+    partner: config.partner,
+    boatId: config.boatId,
+    currentTrips: current,
+    isFirstRun
+  });
+
+  console.log(`[elpatron] Trips: ${current.length} | Changes: ${changes.length}`);
+  console.log(`[elpatron] Notifications:`, notifyStats);
 })();

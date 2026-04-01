@@ -1,60 +1,28 @@
 import axios from "axios";
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import dotenv from "dotenv";
+import {
+  STAGES,
+  classifyChange,
+  isInSendWindow,
+  parseDepartureDate,
+  isReminderWindowNow,
+  buildLifecycleMessage,
+  checkFrequencyCap,
+  rankChanges
+} from "./notificationLifecycle.js";
 
 dotenv.config();
 
 const STATE_DIR = path.resolve("state");
 const SEND_LOG_PATH = path.join(STATE_DIR, "notification_send_log.json");
+const DEFERRED_PATH = path.join(STATE_DIR, "deferred_notifications.json");
 
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 
-// ── Quiet hours + throttle config ─────────────────────────────────────────────
-
-const QUIET_HOURS_START = 22; // 10 PM Pacific
-const QUIET_HOURS_END = 6;   // 6 AM Pacific
-const MIN_HOURS_BETWEEN_PARTNER_PUSHES = 4;
-const MIN_HOURS_BETWEEN_FEW_SPOTS_SAME_TRIP = 2;
-
-// ── Notification templates ────────────────────────────────────────────────────
-
-function buildNotificationContent(change) {
-  const trip = change.now || {};
-  const boatName = trip.boat_name || "a partner boat";
-  const tripName = trip.trip_name || "Upcoming trip";
-  const departure = trip.departure_text || "";
-  const spots = trip.open_spots;
-  const price = trip.price_text || "";
-
-  switch (change.type) {
-    case "NEW_TRIP":
-      return {
-        title: `🎣 New trip on ${boatName}!`,
-        body: [tripName, departure, spots != null ? `${spots} spots` : null, price]
-          .filter(Boolean)
-          .join(" — "),
-        priority: "normal"
-      };
-
-    case "OPEN_TRIP":
-      return {
-        title: `Spot opened on ${boatName}!`,
-        body: `${tripName} was full — now has ${spots ?? "open"} spots. Book before it fills again.`,
-        priority: "high"
-      };
-
-    case "FEW_SPOTS":
-      return {
-        title: `Only ${spots} left on ${boatName}`,
-        body: [tripName, departure, "Going fast."].filter(Boolean).join(" — "),
-        priority: "high"
-      };
-
-    default:
-      return null; // TRIP_REMOVED — no notification
-  }
-}
+// ── Deep link builder ────────────────────────────────────────────
 
 function buildDeepLink(change, partner) {
   const trip = change.now || {};
@@ -66,19 +34,18 @@ function buildDeepLink(change, partner) {
     `utm_source=fishcity`,
     `utm_medium=push`,
     `utm_campaign=partner_${partner}`,
-    `utm_content=${change.type}_${change.trip_id}`,
+    `utm_content=${change.stage || change.type}_${change.trip_id}`,
     `utm_term=${new Date().toISOString().slice(0, 10)}`
   ].join("&");
 
   return `${bookingUrl}${sep}${utmParams}`;
 }
 
-// ── Throttle logic ────────────────────────────────────────────────────────────
+// ── State management ─────────────────────────────────────────────
 
 async function loadSendLog() {
   try {
-    const raw = await fs.readFile(SEND_LOG_PATH, "utf8");
-    return JSON.parse(raw);
+    return JSON.parse(await fs.readFile(SEND_LOG_PATH, "utf8"));
   } catch {
     return { sends: [] };
   }
@@ -86,59 +53,28 @@ async function loadSendLog() {
 
 async function saveSendLog(log) {
   await fs.mkdir(STATE_DIR, { recursive: true });
-  // Keep only last 7 days of sends to prevent unbounded growth
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000; // Keep 14 days
   log.sends = (log.sends || []).filter((s) => new Date(s.sent_at).getTime() > cutoff);
   await fs.writeFile(SEND_LOG_PATH, JSON.stringify(log, null, 2));
 }
 
-function isQuietHours() {
-  const now = new Date();
-  // Convert to Pacific time
-  const pacific = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
-  const hour = pacific.getHours();
-  return hour >= QUIET_HOURS_START || hour < QUIET_HOURS_END;
+async function loadDeferred() {
+  try {
+    return JSON.parse(await fs.readFile(DEFERRED_PATH, "utf8"));
+  } catch {
+    return [];
+  }
 }
 
-function shouldThrottle(sendLog, partner, change) {
-  const sends = sendLog.sends || [];
-  const now = Date.now();
-
-  // Rule: Max 1 push per partner per 4-hour window
-  const lastPartnerSend = sends
-    .filter((s) => s.partner === partner)
-    .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0];
-
-  if (lastPartnerSend) {
-    const hoursSince = (now - new Date(lastPartnerSend.sent_at).getTime()) / (1000 * 60 * 60);
-    if (hoursSince < MIN_HOURS_BETWEEN_PARTNER_PUSHES) {
-      return { throttled: true, reason: `Partner ${partner} last push was ${hoursSince.toFixed(1)}h ago (min ${MIN_HOURS_BETWEEN_PARTNER_PUSHES}h)` };
-    }
-  }
-
-  // Rule: FEW_SPOTS for same trip — only if last push for this trip was >2h ago
-  if (change.type === "FEW_SPOTS") {
-    const lastTripSend = sends
-      .filter((s) => s.partner === partner && s.trip_id === change.trip_id && s.change_type === "FEW_SPOTS")
-      .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0];
-
-    if (lastTripSend) {
-      const hoursSince = (now - new Date(lastTripSend.sent_at).getTime()) / (1000 * 60 * 60);
-      if (hoursSince < MIN_HOURS_BETWEEN_FEW_SPOTS_SAME_TRIP) {
-        return { throttled: true, reason: `FEW_SPOTS for trip ${change.trip_id} sent ${hoursSince.toFixed(1)}h ago` };
-      }
-    }
-  }
-
-  return { throttled: false };
+async function saveDeferred(items) {
+  await fs.mkdir(STATE_DIR, { recursive: true });
+  // Drop deferred items older than 24 hours (stale)
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const fresh = (items || []).filter((d) => new Date(d.deferred_at).getTime() > cutoff);
+  await fs.writeFile(DEFERRED_PATH, JSON.stringify(fresh, null, 2));
 }
 
-// ── FCM send via Fish City Push API (/v1/push/*) ─────────────────────────────
-//
-// API docs: https://fcapi.fishcity.app/v1/push/send
-// Auth: JWT Bearer token from /api/admin/login
-// Recipients: { type: "audience", partner_type: "boat", partner_id: <boatId> }
-// Destinations: "website" (opens URL), "feed" (opens trip), "home_feed" (default)
+// ── Auth ─────────────────────────────────────────────────────────
 
 async function getAuthToken() {
   const { API_BASE_URL, ADMIN_API_KEY, INGEST_EMAIL, INGEST_PASSWORD } = process.env;
@@ -151,40 +87,19 @@ async function getAuthToken() {
   return res.data?.data?.token;
 }
 
-/**
- * Send a push notification via the Fish City Push API.
- *
- * Uses POST /v1/push/send with:
- *   - destination: "website" → opens booking URL in in-app browser
- *   - recipients.type: "audience" → targets followers of a specific boat
- *   - fallback: "home_feed" → if deep link fails, land on home feed
- *
- * @see Section 5 "Send Immediate Push" in Push API docs
- */
-async function sendPushViaBackend(token, { title, body, deepLink, boatId, partner }) {
+// ── Push API send ────────────────────────────────────────────────
+
+async function sendPush(token, { title, body, deepLink, boatId, partner, stage, tripId }) {
   const { API_BASE_URL } = process.env;
 
-  // Build payload per the Push API spec
   const payload = {
     title,
     body,
-    // Deep link: open the booking URL with UTM params in the in-app browser
-    destination: "website",
-    destination_params: {
-      url: deepLink
-    },
-    // Target: specific test emails during dev, audience in production
+    destination: deepLink ? "website" : "home_feed",
+    destination_params: deepLink ? { url: deepLink } : {},
     recipients: process.env.NOTIFY_EMAILS
-      ? {
-          type: "emails",
-          customer_emails: process.env.NOTIFY_EMAILS
-        }
-      : {
-          type: "audience",
-          partner_type: "boat",
-          partner_id: boatId
-        },
-    // Fallback if the deep link destination fails
+      ? { type: "emails", customer_emails: process.env.NOTIFY_EMAILS }
+      : { type: "audience", partner_type: "boat", partner_id: boatId },
     fallback: "home_feed"
   };
 
@@ -194,29 +109,13 @@ async function sendPushViaBackend(token, { title, body, deepLink, boatId, partne
   };
 
   try {
-    // Validate payload first (optional dry-run check)
-    if (process.env.PUSH_VALIDATE_FIRST === "true") {
-      const validateRes = await axios.post(`${API_BASE_URL}/v1/push/validate`, payload, {
-        timeout: 10000,
-        headers
-      });
-      if (!validateRes.data?.data?.isValid) {
-        return { success: false, error: "Payload validation failed", method: "validate" };
-      }
-      console.log(`[notifier] Payload validated OK`);
-    }
-
-    // Send the push notification
     const res = await axios.post(`${API_BASE_URL}/v1/push/send`, payload, {
-      timeout: 15000,
-      headers
+      timeout: 15000, headers
     });
 
     const data = res.data?.data || {};
     return {
       success: true,
-      response: res.data,
-      method: "push_api",
       attempted: data.attemptedCount || 0,
       delivered: data.successCount || 0,
       failed: data.failureCount || 0
@@ -224,76 +123,168 @@ async function sendPushViaBackend(token, { title, body, deepLink, boatId, partne
   } catch (err) {
     const status = err.response?.status;
     const message = err.response?.data?.message || err.message;
-
-    // Log detailed error for debugging
     console.error(`[notifier] Push API error (${status}): ${message}`);
-    if (err.response?.data?.details) {
-      console.error(`[notifier] Details: ${err.response.data.details}`);
-    }
-
-    return { success: false, error: message, status, method: "push_api" };
+    return { success: false, error: message, status };
   }
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// ── Analytics logging ────────────────────────────────────────────
+
+async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attempted, delivered }) {
+  const { API_BASE_URL } = process.env;
+  if (!API_BASE_URL) return;
+
+  try {
+    const eventId = crypto.randomUUID();
+    await axios.post(`${API_BASE_URL}/v1/dev/el-dorado-notifications/analytics/events`, {
+      notification_event_id: eventId,
+      analytics_event_type: "push_sent",
+      notification_type: stage,
+      audience_type: process.env.NOTIFY_EMAILS ? "dev_test" : "boat_followers",
+      boat_id: boatId,
+      trip_id: tripId || null,
+      destination: "website",
+      idempotency_key: `${partner}_${stage}_${tripId || "none"}_${new Date().toISOString().slice(0, 10)}`,
+      send_hour: new Date().getUTCHours(),
+      metadata: {
+        partner,
+        attempted,
+        delivered,
+        source: "ingestion_notifier"
+      }
+    }, {
+      timeout: 10000,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      }
+    });
+    console.log(`[analytics] Logged push_sent event ${eventId}`);
+  } catch (err) {
+    // Analytics is non-blocking — don't fail the pipeline
+    console.warn(`[analytics] Failed to log event: ${err.message}`);
+  }
+}
+
+// ── Reminder detection ───────────────────────────────────────────
+
+/**
+ * Check current trips for any that need a departure reminder.
+ * Returns reminder "changes" to merge into the notification queue.
+ */
+export function detectReminders(currentTrips) {
+  const reminders = [];
+  for (const trip of currentTrips) {
+    const dep = parseDepartureDate(trip.departure_text);
+    if (dep && isReminderWindowNow(dep)) {
+      reminders.push({
+        type: "REMINDER",
+        stage: STAGES.REMINDER,
+        trip_id: trip.trip_id,
+        now: trip
+      });
+    }
+  }
+  return reminders;
+}
+
+// ── Main export ──────────────────────────────────────────────────
 
 /**
  * Send push notifications for partner schedule changes.
- * Handles quiet hours, throttling, template rendering, and delivery logging.
  *
- * @param {Array} changes - Array of change objects from computeChanges()
+ * Follows CRM lifecycle model:
+ * 1. Classify changes into lifecycle stages
+ * 2. Check send window (7am-9:30pm Pacific)
+ * 3. Check frequency caps (2/day, 2h gap)
+ * 4. Pick the highest-priority change to send
+ * 5. Build CRM-style message
+ * 6. Send via Push API
+ * 7. Log analytics event
+ * 8. Defer anything outside the send window for next run
+ *
+ * @param {Array} changes - Change objects from computeChanges()
  * @param {Object} options
- * @param {string} options.partner - Partner slug (eldorado, elpatron, oceanside)
- * @param {number} options.locationId - FC location_id
+ * @param {string} options.partner - Partner slug
  * @param {number} options.boatId - FC boat_id
- * @returns {{ sent: number, throttled: number, skipped: number, errors: number }}
+ * @param {Array} [options.currentTrips] - Current trip list (for reminders)
+ * @param {boolean} [options.isFirstRun] - If true, seed state without notifying
  */
-export async function sendPartnerNotifications(changes, { partner, locationId, boatId }) {
-  const stats = { sent: 0, throttled: 0, skipped: 0, errors: 0 };
+export async function sendPartnerNotifications(changes, { partner, boatId, currentTrips = [], isFirstRun = false }) {
+  const stats = { sent: 0, deferred: 0, throttled: 0, skipped: 0, errors: 0, reminders: 0 };
 
-  // Filter out TRIP_REMOVED — never notify on removals
-  const notifiable = changes.filter((c) => c.type !== "TRIP_REMOVED");
+  // ── First-run guard: seed state, don't spam ────────────────
+  if (isFirstRun) {
+    console.log(`[notifier] First run for ${partner} — seeding state, no notifications sent`);
+    stats.skipped = changes.length;
+    return stats;
+  }
+
+  // ── Merge in departure reminders ───────────────────────────
+  const reminders = detectReminders(currentTrips);
+  if (reminders.length > 0) {
+    console.log(`[notifier] Detected ${reminders.length} departure reminder(s)`);
+    stats.reminders = reminders.length;
+  }
+  const allChanges = [...changes, ...reminders];
+
+  // ── Filter to notifiable changes ───────────────────────────
+  const notifiable = allChanges.filter((c) => c.type !== "TRIP_REMOVED");
   if (notifiable.length === 0) {
     console.log(`[notifier] No notifiable changes for ${partner}`);
     return stats;
   }
 
-  // Check quiet hours
-  if (isQuietHours()) {
-    console.log(`[notifier] Quiet hours active — deferring ${notifiable.length} notifications for ${partner}`);
+  // ── Check send window ──────────────────────────────────────
+  if (!isInSendWindow()) {
+    console.log(`[notifier] Outside send window (7am-9:30pm Pacific) — deferring ${notifiable.length} changes`);
+    // Save deferred changes for replay on next run
+    const deferred = await loadDeferred();
+    for (const c of notifiable) {
+      deferred.push({ ...c, partner, boatId, deferred_at: new Date().toISOString() });
+    }
+    await saveDeferred(deferred);
+    stats.deferred = notifiable.length;
+    return stats;
+  }
+
+  // ── Replay any deferred changes from previous runs ─────────
+  const deferred = await loadDeferred();
+  const partnerDeferred = deferred.filter((d) => d.partner === partner);
+  if (partnerDeferred.length > 0) {
+    console.log(`[notifier] Replaying ${partnerDeferred.length} deferred change(s) for ${partner}`);
+    notifiable.push(...partnerDeferred);
+    // Clear partner's deferred items
+    await saveDeferred(deferred.filter((d) => d.partner !== partner));
+  }
+
+  // ── Rank and pick the top change ───────────────────────────
+  const topChange = rankChanges(notifiable);
+  if (!topChange) {
     stats.skipped = notifiable.length;
     return stats;
   }
 
+  // ── Check frequency caps ───────────────────────────────────
   const sendLog = await loadSendLog();
-
-  // Aggregate: pick the most important change to send (one push per partner per window)
-  // Priority: OPEN_TRIP > FEW_SPOTS > NEW_TRIP
-  const priorityOrder = { OPEN_TRIP: 3, FEW_SPOTS: 2, NEW_TRIP: 1 };
-  const sorted = [...notifiable].sort((a, b) => (priorityOrder[b.type] || 0) - (priorityOrder[a.type] || 0));
-  const topChange = sorted[0];
-
-  // Check throttle
-  const throttleCheck = shouldThrottle(sendLog, partner, topChange);
-  if (throttleCheck.throttled) {
-    console.log(`[notifier] Throttled: ${throttleCheck.reason}`);
+  const capCheck = checkFrequencyCap(sendLog.sends, partner, topChange.stage, topChange.trip_id);
+  if (!capCheck.allowed) {
+    console.log(`[notifier] Throttled: ${capCheck.reason}`);
     stats.throttled = notifiable.length;
     return stats;
   }
 
-  // Build notification
-  const content = buildNotificationContent(topChange);
-  if (!content) {
+  // ── Build message ──────────────────────────────────────────
+  const message = buildLifecycleMessage(topChange.stage, topChange.now || {});
+  if (!message) {
     stats.skipped = 1;
     return stats;
   }
 
   const deepLink = buildDeepLink(topChange, partner);
-  const date = new Date().toISOString().slice(0, 10);
-  const analyticsLabel = `partner_${partner}_${topChange.type}_${date}`;
 
-  // If there are multiple changes, mention them in the body
-  let body = content.body;
+  // Append count of additional changes
+  let body = message.body;
   if (notifiable.length > 1) {
     const others = notifiable.length - 1;
     body += ` (+${others} more update${others > 1 ? "s" : ""})`;
@@ -302,48 +293,61 @@ export async function sendPartnerNotifications(changes, { partner, locationId, b
   const targetLabel = process.env.NOTIFY_EMAILS
     ? `emails(${process.env.NOTIFY_EMAILS})`
     : `boat audience (boat_id=${boatId})`;
-  console.log(`[notifier] Sending: "${content.title}" → ${targetLabel}`);
+
+  console.log(`[notifier] Stage: ${topChange.stage} | "${message.title}" → ${targetLabel}`);
   console.log(`[notifier] Body: ${body}`);
-  console.log(`[notifier] Deep link: ${deepLink}`);
-  console.log(`[notifier] Analytics label: ${analyticsLabel}`);
+  console.log(`[notifier] Deep link: ${deepLink || "(none)"}`);
 
   if (DRY_RUN) {
-    console.log(`[notifier] DRY RUN — skipping actual send`);
+    console.log(`[notifier] DRY RUN — skipping send`);
     stats.sent = 1;
     return stats;
   }
 
+  // ── Send ───────────────────────────────────────────────────
   try {
     const token = await getAuthToken();
-    const result = await sendPushViaBackend(token, {
-      title: content.title,
+    const result = await sendPush(token, {
+      title: message.title,
       body,
       deepLink,
       boatId,
-      partner
+      partner,
+      stage: topChange.stage,
+      tripId: topChange.trip_id
     });
 
     if (result.success) {
-      console.log(`[notifier] ✓ Push sent via ${result.method} (${result.delivered}/${result.attempted} delivered)`);
+      console.log(`[notifier] ✓ Delivered ${result.delivered}/${result.attempted}`);
       stats.sent = 1;
 
-      // Log the send for throttle tracking
+      // Log to send history
       sendLog.sends.push({
         partner,
         boat_id: boatId,
         trip_id: topChange.trip_id,
+        stage: topChange.stage,
         change_type: topChange.type,
-        title: content.title,
+        title: message.title,
         deep_link: deepLink,
-        analytics_label: analyticsLabel,
         sent_at: new Date().toISOString(),
         changes_count: notifiable.length,
         attempted: result.attempted,
         delivered: result.delivered
       });
       await saveSendLog(sendLog);
+
+      // Log analytics (non-blocking)
+      await logAnalyticsEvent(token, {
+        stage: topChange.stage,
+        tripId: topChange.trip_id,
+        boatId,
+        partner,
+        attempted: result.attempted,
+        delivered: result.delivered
+      });
     } else {
-      console.error(`[notifier] ✗ Push failed (${result.status}): ${result.error}`);
+      console.error(`[notifier] ✗ Send failed: ${result.error}`);
       stats.errors = 1;
     }
   } catch (err) {
