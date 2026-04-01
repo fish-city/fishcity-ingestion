@@ -131,7 +131,7 @@ export class ReferenceCache {
   token = null; // dev token (used for pushes)
   user = null;
   loaded = false;
-  idx = { landings: new Map(), boats: new Map(), tripTypes: new Map(), fish: new Map(), boatToLanding: new Map() };
+  idx = { landings: new Map(), boats: new Map(), boatIdToName: new Map(), tripTypes: new Map(), fish: new Map(), boatToLanding: new Map(), landingToBoats: new Map() };
 
   async ensureAuth() {
     if (this.token) return this.token;
@@ -209,10 +209,22 @@ export class ReferenceCache {
     refSnap._sourceBase = refBase;
 
     for (const it of refSnap.landingTypes) this.idx.landings.set(n(it.landing_name), String(it.landing_id));
-    for (const it of refSnap.boatNames) this.idx.boats.set(n(it.boat_name), String(it.boat_id));
+    for (const it of refSnap.boatNames) {
+      const boatId = String(it.boat_id);
+      const boatName = String(it.boat_name || "");
+      this.idx.boats.set(n(boatName), boatId);
+      this.idx.boatIdToName.set(boatId, boatName);
+    }
     for (const it of refSnap.tripTypes) this.idx.tripTypes.set(n(it.trip_type), String(it.trip_id));
     for (const it of refSnap.fishTypes) this.idx.fish.set(n(it.fish_type), String(it.fish_id));
-    for (const p of refSnap.boatToLandingPairs) this.idx.boatToLanding.set(String(p.boat_id), String(p.landing_id));
+    for (const p of refSnap.boatToLandingPairs) {
+      const boatId = String(p.boat_id);
+      const landingId = String(p.landing_id);
+      this.idx.boatToLanding.set(boatId, landingId);
+      // Reverse: landing → list of boats
+      if (!this.idx.landingToBoats.has(landingId)) this.idx.landingToBoats.set(landingId, []);
+      this.idx.landingToBoats.get(landingId).push(boatId);
+    }
 
     await this.maybeBackcheck(refSnap);
 
@@ -222,16 +234,30 @@ export class ReferenceCache {
 
   lookupLandingId(name) { return this.idx.landings.get(n(name)) || ""; }
   lookupBoatId(name) { return this.idx.boats.get(n(name)) || ""; }
-  lookupBoatIdFuzzy(name) {
-    const q = n(name);
-    if (!q) return "";
-    if (this.idx.boats.has(q)) return this.idx.boats.get(q);
-    for (const [k, v] of this.idx.boats.entries()) {
-      if (k.includes(q) || q.includes(k)) return v;
-    }
-    return "";
-  }
+  // Fuzzy matching removed — it caused false positives (e.g. "good" → boat "Good").
+  // All boat resolution is now done via exact word-boundary matching in push.js.
+  lookupBoatName(boatId) { return this.idx.boatIdToName.get(String(boatId || "")) || ""; }
   lookupLandingIdByBoatId(boatId) { return this.idx.boatToLanding.get(String(boatId || "")) || ""; }
+
+  /**
+   * Get all boats that operate from a landing.
+   * Returns array of { boatId, boatName } sorted by name.
+   */
+  lookupBoatsByLandingId(landingId) {
+    const boatIds = this.idx.landingToBoats.get(String(landingId || "")) || [];
+    return boatIds
+      .map((id) => ({ boatId: id, boatName: this.idx.boatIdToName.get(id) || "" }))
+      .filter((b) => b.boatName)
+      .sort((a, b) => a.boatName.localeCompare(b.boatName));
+  }
+
+  /**
+   * Get all known boat names as a flat array. Useful for passing to AI.
+   */
+  getAllBoatNames() {
+    return [...this.idx.boatIdToName.values()].filter(Boolean).sort();
+  }
+
   lookupTripTypeId(name) { return this.idx.tripTypes.get(n(name)) || ""; }
   lookupFishId(name) { return this.idx.fish.get(n(name)) || ""; }
 }
