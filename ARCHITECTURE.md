@@ -61,7 +61,10 @@ For each accepted link:
 6. **Quality gates** — skip if: no valid datetime, no boat/landing match, no mapped fish, landing not in canonical map
 7. **Build payload** (`payload.js`) — constructs multipart form with compressed images (sharp: 1400px wide, 75% JPEG quality, max 5 images)
 8. **Push** to `POST /api/v2/createTrip` on the FC backend API
+   - Fetch and createTrip stages now classify timeout failures explicitly (for example `FETCH_REPORT_TIMEOUT`, `CREATE_TRIP_TIMEOUT`) instead of the generic `This operation was aborted`
+   - Retry each timeout-sensitive network stage once before recording a terminal failure
 9. **Track processed URLs** in `state/processed_reports.json` to avoid re-processing
+10. **Write latest run evidence** to `runs/dev_output/report_push_latest.json` with counters, reason buckets, and sample URLs for closeout review
 
 ### Boat Resolution Logic
 
@@ -234,6 +237,10 @@ OPENAI_API_KEY=                               # For AI report normalization
 │  accepted.json           │
 │  (list of report URLs)   │
 └──────────┬───────────────┘
+           │
+           ├── report_push_latest.json
+           │   (latest counters + reasons + samples)
+           ▼
            │ For each URL:
            ▼
 ┌──────────────────────────┐     ┌───────────────────────┐
