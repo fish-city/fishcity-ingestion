@@ -7,6 +7,7 @@
     "ingest:sd": "node pipelines/fishing_reports/ingest.js",
     "push:sd": "node pipelines/fishing_reports/push.js",
     "weather:preview": "node pipelines/weather/run.js",
+    "closeout:evidence": "node scripts/generate_closeout_evidence.mjs",
     "partner:eldorado": "node pipelines/partner_schedules/eldorado_ingest.js",
     "partner:elpatron": "node pipelines/partner_schedules/elpatron_ingest.js",
     "partner:oceanside": "node pipelines/partner_schedules/oceanside_ingest.js",
