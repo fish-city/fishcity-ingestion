@@ -117,6 +117,18 @@ export async function fetchFishCountActivity(boatId, defaultPollMinutes = 240) {
 }
 
 // ── Trip scraping (fishingreservations.net) ───────────────────────────────────
+//
+// fishingreservations.net uses a responsive Bootstrap grid layout inside table
+// rows.  Trip details live in div.row containers with class-named columns:
+//   .trip-info   → <strong>Boat Name</strong> \n Trip Type
+//   .trip-depart → departure date/time
+//   .trip-return → return date/time
+//   .trip-load   → passenger capacity
+//   .trip-price  → ticket price
+//   .trip-spots  → spots remaining (or "Full", "Waitlist")
+// Trip IDs come from <a href="...?trip_id=XXXX"> booking links.
+// Some sites (El Dorado) also have td.trip-cell[data-trip-id], others
+// (Oceanside) do not — so we use a unified approach based on .trip-info.
 
 export async function fetchTrips(url, bookingBase, partner) {
   const res = await axios.get(url, {
@@ -126,38 +138,76 @@ export async function fetchTrips(url, bookingBase, partner) {
   const $ = cheerio.load(res.data);
   const rows = [];
 
-  $("tr")
-    .filter((_, tr) => $(tr).find("td.trip-cell[data-trip-id]").length > 0)
-    .each((_, tr) => {
-      const row = $(tr);
-      const tripId = row.find("td.trip-cell[data-trip-id]").first().attr("data-trip-id");
-      if (!tripId) return;
+  // Strategy: find every .trip-info element, walk up to the nearest container
+  // (tr, div.row, or td) that also holds .trip-depart, then extract all fields.
+  $(".trip-info").each((_, infoEl) => {
+    const $info = $(infoEl);
 
-      const info = clean(row.find(".trip-info").text());
-      const boat_name = info.split(" ")[0] || "";
-      const trip_name = info.replace(new RegExp(`^${boat_name}\\s*`), "");
-      const spotsRaw = clean(row.find(".trip-spots").text());
-      const spots = parseSpots(spotsRaw);
+    // Walk up to find the container that holds all trip fields.
+    // On El Dorado this is a <tr>; on Oceanside it may be a parent <tr> or
+    // the page-level container. We climb until we find .trip-depart as a sibling.
+    let container = $info.parent();
+    for (let depth = 0; depth < 6; depth++) {
+      if (container.find(".trip-depart").length > 0 && container.find(".trip-spots").length > 0) break;
+      container = container.parent();
+    }
 
-      rows.push({
-        partner,
-        source_url: url,
-        trip_id: String(tripId),
-        booking_url: `${bookingBase}${tripId}`,
-        boat_name,
-        trip_name,
-        departure_text: clean(row.find(".trip-depart").text()),
-        return_text: clean(row.find(".trip-return").text()),
-        load_text: clean(row.find(".trip-load").text()),
-        price_text: clean(row.find(".trip-price").text()),
-        spots_text: spotsRaw,
-        status: spots.status,
-        open_spots: spots.open_spots,
-        scraped_at: new Date().toISOString()
-      });
+    // ── Extract trip ID from booking link ────────────────────────
+    let tripId = null;
+
+    // Method 1: <a href="...?trip_id=XXXX"> inside the container
+    let bookingHref = "";
+    const bookingLink = container.find('a[href*="trip_id"]').first();
+    if (bookingLink.length) {
+      bookingHref = bookingLink.attr("href") || "";
+      const m = bookingHref.match(/trip_id=(\d+)/);
+      if (m) tripId = m[1];
+    }
+
+    // Method 2: td[data-trip-id] inside the container (El Dorado)
+    if (!tripId) {
+      const tripCell = container.find("td[data-trip-id]").first();
+      if (tripCell.length) tripId = tripCell.attr("data-trip-id");
+    }
+
+    if (!tripId) return; // Skip rows without a trip ID
+
+    // Build the booking URL from the actual page link when possible
+    const baseUrl = new URL(url);
+    const resolvedBookingUrl = bookingHref
+      ? new URL(bookingHref, baseUrl).href
+      : `${bookingBase}${tripId}`;
+
+    // ── Extract boat name (from <strong>) and trip type (text node) ──
+    const boatStrong = $info.find("strong").first();
+    const boat_name = clean(boatStrong.text());
+    // Trip type is the remaining text after removing the <strong> content
+    const fullInfo = clean($info.text());
+    const trip_name = clean(fullInfo.replace(boat_name, ""));
+
+    // ── Extract remaining fields from sibling columns ────────────
+    const spotsRaw = clean(container.find(".trip-spots").first().text());
+    const spots = parseSpots(spotsRaw);
+
+    rows.push({
+      partner,
+      source_url: url,
+      trip_id: String(tripId),
+      booking_url: resolvedBookingUrl,
+      boat_name,
+      trip_name,
+      departure_text: clean(container.find(".trip-depart").first().text()),
+      return_text: clean(container.find(".trip-return").first().text()),
+      load_text: clean(container.find(".trip-load").first().text()),
+      price_text: clean(container.find(".trip-price").first().text()),
+      spots_text: spotsRaw,
+      status: spots.status,
+      open_spots: spots.open_spots,
+      scraped_at: new Date().toISOString()
     });
+  });
 
-  // Deduplicate by trip_id within a single scrape
+  // Deduplicate by trip_id (responsive layouts often render each trip twice)
   return [...new Map(rows.map((x) => [x.trip_id, x])).values()];
 }
 
