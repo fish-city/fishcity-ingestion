@@ -173,12 +173,17 @@ async function sendPushViaBackend(token, { title, body, deepLink, boatId, partne
     destination_params: {
       url: deepLink
     },
-    // Target: followers of this specific boat
-    recipients: {
-      type: "audience",
-      partner_type: "boat",
-      partner_id: boatId
-    },
+    // Target: specific test emails during dev, audience in production
+    recipients: process.env.NOTIFY_EMAILS
+      ? {
+          type: "emails",
+          customer_emails: process.env.NOTIFY_EMAILS
+        }
+      : {
+          type: "audience",
+          partner_type: "boat",
+          partner_id: boatId
+        },
     // Fallback if the deep link destination fails
     fallback: "home_feed"
   };
@@ -294,7 +299,10 @@ export async function sendPartnerNotifications(changes, { partner, locationId, b
     body += ` (+${others} more update${others > 1 ? "s" : ""})`;
   }
 
-  console.log(`[notifier] Sending: "${content.title}" → boat audience (boat_id=${boatId})`);
+  const targetLabel = process.env.NOTIFY_EMAILS
+    ? `emails(${process.env.NOTIFY_EMAILS})`
+    : `boat audience (boat_id=${boatId})`;
+  console.log(`[notifier] Sending: "${content.title}" → ${targetLabel}`);
   console.log(`[notifier] Body: ${body}`);
   console.log(`[notifier] Deep link: ${deepLink}`);
   console.log(`[notifier] Analytics label: ${analyticsLabel}`);
