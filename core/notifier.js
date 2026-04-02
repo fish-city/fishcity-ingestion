@@ -108,17 +108,29 @@ async function sendPush(token, { title, body, deepLink, boatId, partner, stage, 
     Authorization: `Bearer ${token}`
   };
 
+  console.log(`[notifier] Push payload: destination=${payload.destination}, destination_params=${JSON.stringify(payload.destination_params)}`);
+
   try {
     const res = await axios.post(`${API_BASE_URL}/api/v1/push/send`, payload, {
       timeout: 15000, headers
     });
 
     const data = res.data?.data || {};
+
+    // Log fallback detection — critical for deep link debugging
+    if (data.fallback_used) {
+      console.warn(`[notifier] ⚠ Backend used FALLBACK (home_feed): ${data.fallback_reason}`);
+    } else {
+      console.log(`[notifier] ✓ Deep link destination accepted (no fallback)`);
+    }
+
     return {
       success: true,
       attempted: data.attemptedCount || 0,
       delivered: data.successCount || 0,
-      failed: data.failureCount || 0
+      failed: data.failureCount || 0,
+      fallback_used: !!data.fallback_used,
+      fallback_reason: data.fallback_reason || null
     };
   } catch (err) {
     const status = err.response?.status;
@@ -299,6 +311,10 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
 
   const deepLink = buildDeepLink(topChange, partner);
 
+  if (!deepLink) {
+    console.warn(`[notifier] ⚠ No deep link — booking_url missing on trip ${topChange.trip_id} (will send to home_feed)`);
+  }
+
   // Append count of additional changes
   let body = message.body;
   if (notifiable.length > 1) {
@@ -334,7 +350,7 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
     });
 
     if (result.success) {
-      console.log(`[notifier] ✓ Delivered ${result.delivered}/${result.attempted}`);
+      console.log(`[notifier] ✓ Delivered ${result.delivered}/${result.attempted}${result.fallback_used ? " (⚠ FALLBACK used)" : ""}`);
       stats.sent = 1;
 
       // Log to send history
@@ -346,6 +362,8 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
         change_type: topChange.type,
         title: message.title,
         deep_link: deepLink,
+        fallback_used: result.fallback_used || false,
+        fallback_reason: result.fallback_reason || null,
         sent_at: new Date().toISOString(),
         changes_count: notifiable.length,
         attempted: result.attempted,
