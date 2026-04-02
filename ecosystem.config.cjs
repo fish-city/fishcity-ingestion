@@ -25,12 +25,12 @@ module.exports = {
       retain: 5                    // Keep 5 rotated log files
     },
 
-    // ── El Dorado Partner Notifications (4x daily: 7am, 11am, 3pm, 7pm) ──
+    // ── El Dorado Partner Notifications (hourly, 7am–9pm) ─────────────────
     {
       name: "fc-eldorado-notify",
       script: "pipelines/partner_schedules/eldorado_ingest.js",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
-      cron_restart: "0 7,11,15,19 * * *",
+      cron_restart: "0 7-21 * * *",
       autorestart: false,
       watch: false,
       max_memory_restart: "256M",
@@ -45,12 +45,12 @@ module.exports = {
       retain: 5
     },
 
-    // ── El Patron Partner Notifications (4x daily: 7:15am, 11:15am, 3:15pm, 7:15pm) ──
+    // ── El Patron Partner Notifications (hourly, 7am–9pm, offset :15) ─────
     {
       name: "fc-elpatron-notify",
       script: "pipelines/partner_schedules/elpatron_ingest.js",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
-      cron_restart: "15 7,11,15,19 * * *",
+      cron_restart: "15 7-21 * * *",
       autorestart: false,
       watch: false,
       max_memory_restart: "256M",
@@ -65,12 +65,12 @@ module.exports = {
       retain: 5
     },
 
-    // ── Oceanside Partner Notifications (4x daily: 7:30am, 11:30am, 3:30pm, 7:30pm) ──
+    // ── Oceanside Partner Notifications (hourly, 7am–9pm, offset :30) ─────
     {
       name: "fc-oceanside-notify",
       script: "pipelines/partner_schedules/oceanside_ingest.js",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
-      cron_restart: "30 7,11,15,19 * * *",
+      cron_restart: "30 7-21 * * *",
       autorestart: false,
       watch: false,
       max_memory_restart: "256M",
