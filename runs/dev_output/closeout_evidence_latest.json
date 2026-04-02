@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-02T10:47:07.654Z",
+  "generatedAt": "2026-04-02T12:48:53.484Z",
   "counts": {
     "acceptedTotal": 72,
     "acceptedCanonicalTotal": 59,
@@ -10,9 +10,9 @@
     "deadLetterTotal": 5
   },
   "latestPush": {
-    "startedAt": "2026-04-02T10:18:01.674Z",
-    "finishedAt": "2026-04-02T10:18:05.895Z",
-    "durationMs": 4221,
+    "startedAt": "2026-04-02T12:19:20.772Z",
+    "finishedAt": "2026-04-02T12:19:24.352Z",
+    "durationMs": 3580,
     "dryRun": false,
     "linksConsidered": 0,
     "attempted": 0,
@@ -28,15 +28,15 @@
     "successSamples": []
   },
   "evidenceFreshness": {
-    "acceptedUpdatedAt": "2026-04-02T10:18:01.435Z",
-    "processedUpdatedAt": "2026-04-02T10:18:05.895Z",
-    "latestPushUpdatedAt": "2026-04-02T10:18:05.897Z",
-    "referenceSnapshotUpdatedAt": "2026-04-02T10:18:05.887Z",
-    "referenceSnapshotSourceTimestamp": "2026-04-02T10:18:05.882Z"
+    "acceptedUpdatedAt": "2026-04-02T12:19:20.592Z",
+    "processedUpdatedAt": "2026-04-02T12:19:24.353Z",
+    "latestPushUpdatedAt": "2026-04-02T12:19:24.354Z",
+    "referenceSnapshotUpdatedAt": "2026-04-02T12:19:24.350Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-02T12:19:24.348Z"
   },
   "qaRollup": {
     "generatedAt": "2026-03-07T18:42:12.952Z",
-    "ageHours": 616.1,
+    "ageHours": 618.1,
     "stale": true,
     "runsTotal": 48,
     "successRatePct": 89.6,
@@ -55,25 +55,39 @@
   },
   "repoState": {
     "branch": "feature/pm/fcc-54-59-closeout-evidence",
-    "head": "c4e40313f64493d282d9363ab784dc9deec87db0",
+    "head": "b4dd81217dddfefd870c75908ba6634c0299d0f6",
     "dirty": true,
     "changedFilesCount": 5,
     "changedFilesSample": [
+      " M .gitignore",
       " M package-lock.json",
-      " M scripts/generate_closeout_evidence.mjs",
-      "?? DEPLOY_V04.sh",
-      "?? DEPLOY_V05.sh",
-      "?? logs/"
-    ]
+      " M runs/dev_output/closeout_evidence_latest.json",
+      " M runs/dev_output/closeout_evidence_latest.md",
+      " M scripts/generate_closeout_evidence.mjs"
+    ],
+    "generatedEvidenceChanges": [
+      " M runs/dev_output/closeout_evidence_latest.json",
+      " M runs/dev_output/closeout_evidence_latest.md"
+    ],
+    "generatedEvidenceChangesCount": 2,
+    "localArtifactChanges": [],
+    "localArtifactChangesCount": 0,
+    "reviewBlockingChanges": [
+      " M .gitignore",
+      " M package-lock.json",
+      " M scripts/generate_closeout_evidence.mjs"
+    ],
+    "reviewBlockingChangesCount": 3,
+    "reviewBlockingDirty": true
   },
   "mergeReadiness": "blocked_on_repo_cleanliness",
   "blockers": [
-    "Repo is dirty (5 changed files) so evidence is not yet in a clean review state",
-    "QA rollup snapshot is stale (616.1h old)"
+    "Repo has 3 review-blocking changed file(s)",
+    "QA rollup snapshot is stale (618.1h old)"
   ],
   "nextActions": [
-    "Clean or intentionally stage the repo diff before calling the packet merge-ready; current working tree is not clean",
-    "Regenerate orchestrator QA rollup evidence; current snapshot is 616.1h old",
+    "Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready",
+    "Regenerate orchestrator QA rollup evidence; current snapshot is 618.1h old",
     "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review",
     "No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"
   ],

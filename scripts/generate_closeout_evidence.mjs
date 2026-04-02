@@ -8,6 +8,13 @@ const ROOT = process.cwd();
 const RUNS_DIR = path.join(ROOT, "runs", "dev_output");
 const STATE_DIR = path.join(ROOT, "state");
 const QA_ROLLUP_STALE_HOURS = 24;
+const GENERATED_EVIDENCE_PATTERNS = [
+  /^runs\/dev_output\/closeout_evidence_latest\.(json|md)$/
+];
+const LOCAL_ARTIFACT_PATTERNS = [
+  /^logs\//,
+  /^DEPLOY_V\d+\.sh$/
+];
 
 const PATHS = {
   accepted: path.join(RUNS_DIR, "accepted.json"),
@@ -73,6 +80,14 @@ function hoursSince(timestamp) {
   return Number((ms / (1000 * 60 * 60)).toFixed(1));
 }
 
+function matchesAny(value, patterns) {
+  return patterns.some((pattern) => pattern.test(value));
+}
+
+function normalizeStatusPath(line) {
+  return String(line || "").replace(/^([ MARCUD?]{1,2}\s+)+/, "").trim();
+}
+
 async function getRepoState() {
   try {
     const [{ stdout: branchStdout }, { stdout: headStdout }, { stdout: statusStdout }] = await Promise.all([
@@ -85,13 +100,27 @@ async function getRepoState() {
       .split(/\r?\n/)
       .map((line) => line.trimEnd())
       .filter(Boolean);
+    const changedPaths = entries.map(normalizeStatusPath);
+    const generatedEvidenceChanges = entries.filter((line, index) => matchesAny(changedPaths[index], GENERATED_EVIDENCE_PATTERNS));
+    const localArtifactChanges = entries.filter((line, index) => matchesAny(changedPaths[index], LOCAL_ARTIFACT_PATTERNS));
+    const reviewBlockingChanges = entries.filter((line, index) => {
+      const changedPath = changedPaths[index];
+      return !matchesAny(changedPath, GENERATED_EVIDENCE_PATTERNS) && !matchesAny(changedPath, LOCAL_ARTIFACT_PATTERNS);
+    });
 
     return {
       branch: branchStdout.trim() || null,
       head: headStdout.trim() || null,
       dirty: entries.length > 0,
       changedFilesCount: entries.length,
-      changedFilesSample: entries.slice(0, 10)
+      changedFilesSample: entries.slice(0, 10),
+      generatedEvidenceChanges,
+      generatedEvidenceChangesCount: generatedEvidenceChanges.length,
+      localArtifactChanges,
+      localArtifactChangesCount: localArtifactChanges.length,
+      reviewBlockingChanges,
+      reviewBlockingChangesCount: reviewBlockingChanges.length,
+      reviewBlockingDirty: reviewBlockingChanges.length > 0
     };
   } catch {
     return null;
@@ -131,12 +160,12 @@ async function getRepoState() {
   const latestPushClean = Boolean(latest) && (latest?.counters?.failed ?? 0) === 0;
   const qaRollupAgeHours = hoursSince(orchestratorQa?.generatedAt);
   const qaRollupStale = qaRollupAgeHours !== null && qaRollupAgeHours > QA_ROLLUP_STALE_HOURS;
-  const repoDirty = Boolean(repoState?.dirty);
+  const reviewBlockingDirty = Boolean(repoState?.reviewBlockingDirty);
   const mergeReadiness = hasCredentialMismatch
     ? "blocked_on_backend_auth"
     : pendingAccepted.length > 0
       ? "blocked_on_pending_accepted_reports"
-      : repoDirty
+      : reviewBlockingDirty
         ? "blocked_on_repo_cleanliness"
         : qaRollupStale
           ? "blocked_on_stale_qa_rollup"
@@ -145,7 +174,8 @@ async function getRepoState() {
             : "needs_operator_review";
   const nextActions = [
     ...(hasCredentialMismatch ? ["Refresh/verify backend auth material for reference bootstrap and rerun npm run push:sd"] : []),
-    ...(repoDirty ? ["Clean or intentionally stage the repo diff before calling the packet merge-ready; current working tree is not clean"] : []),
+    ...(reviewBlockingDirty ? ["Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready"] : []),
+    ...(!reviewBlockingDirty && (repoState?.localArtifactChangesCount ?? 0) > 0 ? ["Local-only artifacts are present (logs / DEPLOY_V*.sh) but excluded from merge-readiness; keep them untracked or remove before handoff"] : []),
     ...(qaRollupStale ? [`Regenerate orchestrator QA rollup evidence; current snapshot is ${qaRollupAgeHours}h old`] : []),
     ...(pendingAccepted.length > 0
       ? ["Review closeout_evidence_latest.md in PR notes / ticket evidence and resolve remaining accepted URLs before merge"]
@@ -210,7 +240,7 @@ async function getRepoState() {
     blockers: uniq([
       ...(hasCredentialMismatch ? ["Backend/API credential mismatch is blocking live push bootstrap"] : []),
       ...(pendingAccepted.length > 0 ? ["Accepted reports remain pending closeout review/push"] : []),
-      ...(repoDirty ? [`Repo is dirty (${repoState.changedFilesCount} changed files) so evidence is not yet in a clean review state`] : []),
+      ...(reviewBlockingDirty ? [`Repo has ${repoState.reviewBlockingChangesCount} review-blocking changed file(s)`] : []),
       ...(qaRollupStale ? [`QA rollup snapshot is stale (${qaRollupAgeHours}h old)`] : [])
     ]),
     nextActions,
@@ -281,8 +311,15 @@ async function getRepoState() {
           `- HEAD: ${summary.repoState.head || "n/a"}`,
           `- Dirty: ${summary.repoState.dirty}`,
           `- Changed files: ${summary.repoState.changedFilesCount}`,
+          `- Review-blocking changed files: ${summary.repoState.reviewBlockingChangesCount}`,
+          `- Generated evidence changed files: ${summary.repoState.generatedEvidenceChangesCount}`,
+          `- Local artifact changed files: ${summary.repoState.localArtifactChangesCount}`,
           "- Changed file sample:",
-          ...((summary.repoState.changedFilesSample || []).map((x) => `  - ${x}`))
+          ...((summary.repoState.changedFilesSample || []).map((x) => `  - ${x}`)),
+          "- Review-blocking changes:",
+          ...((summary.repoState.reviewBlockingChanges || []).map((x) => `  - ${x}`)),
+          "- Local artifact changes:",
+          ...((summary.repoState.localArtifactChanges || []).map((x) => `  - ${x}`))
         ].join("\n")
       : "- Repo state unavailable",
     "",
