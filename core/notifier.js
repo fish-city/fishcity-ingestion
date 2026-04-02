@@ -109,7 +109,7 @@ async function sendPush(token, { title, body, deepLink, boatId, partner, stage, 
   };
 
   try {
-    const res = await axios.post(`${API_BASE_URL}/v1/push/send`, payload, {
+    const res = await axios.post(`${API_BASE_URL}/api/v1/push/send`, payload, {
       timeout: 15000, headers
     });
 
@@ -130,13 +130,16 @@ async function sendPush(token, { title, body, deepLink, boatId, partner, stage, 
 
 // ── Analytics logging ────────────────────────────────────────────
 
-async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attempted, delivered }) {
+async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attempted, delivered, title, body, deepLink, totalChanges, trip }) {
   const { API_BASE_URL } = process.env;
   if (!API_BASE_URL) return;
 
   try {
     const eventId = crypto.randomUUID();
-    await axios.post(`${API_BASE_URL}/v1/dev/el-dorado-notifications/analytics/events`, {
+    const now = new Date();
+    const pacificHour = parseInt(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }), 10);
+
+    await axios.post(`${API_BASE_URL}/api/v1/dev/el-dorado-notifications/analytics/events`, {
       notification_event_id: eventId,
       analytics_event_type: "push_sent",
       notification_type: stage,
@@ -144,13 +147,26 @@ async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attemp
       boat_id: boatId,
       trip_id: tripId || null,
       destination: "website",
-      idempotency_key: `${partner}_${stage}_${tripId || "none"}_${new Date().toISOString().slice(0, 10)}`,
-      send_hour: new Date().getUTCHours(),
+      idempotency_key: `${partner}_${stage}_${tripId || "none"}_${now.toISOString().slice(0, 10)}`,
+      send_hour: pacificHour,
       metadata: {
         partner,
         attempted,
         delivered,
-        source: "ingestion_notifier"
+        source: "ingestion_notifier",
+        // ── Analytics payload for measuring effectiveness ──
+        notification_title: title,
+        notification_body: body,
+        deep_link: deepLink || null,
+        total_changes_in_batch: totalChanges,
+        trip_boat_name: trip?.boat_name || null,
+        trip_type: trip?.trip_name || null,
+        trip_departure: trip?.departure_text || null,
+        trip_spots: trip?.open_spots ?? null,
+        trip_status: trip?.status || null,
+        trip_price: trip?.price_text || null,
+        sent_at_pacific: now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }),
+        day_of_week: now.toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", weekday: "long" })
       }
     }, {
       timeout: 10000,
@@ -344,7 +360,12 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
         boatId,
         partner,
         attempted: result.attempted,
-        delivered: result.delivered
+        delivered: result.delivered,
+        title: message.title,
+        body,
+        deepLink,
+        totalChanges: notifiable.length,
+        trip: topChange.now
       });
     } else {
       console.error(`[notifier] ✗ Send failed: ${result.error}`);

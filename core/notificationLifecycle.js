@@ -89,18 +89,34 @@ export function isInSendWindow() {
 }
 
 /**
- * Parse a departure text like "Apr 15, 2026 5:30 AM" into a Date.
+ * Parse a departure text into a Date.
+ * Handles formats from fishingreservations.net:
+ *   "Wed. 4-1 8:30 PM"       → April 1 of current year, 8:30 PM
+ *   "Thu. 4-2-2026 7:00 AM"  → April 2, 2026, 7:00 AM
+ *   "Apr 15, 2026 5:30 AM"   → standard format
+ *   "4/15/2026 5:30 AM"      → US date format
  * Returns null if unparseable.
  */
 export function parseDepartureDate(departureText) {
   if (!departureText) return null;
   const text = String(departureText).trim();
 
-  // Pattern: "Apr 15, 2026 5:30 AM" or "April 15, 2026"
+  // Pattern 1: "Wed. 4-1 8:30 PM" or "Thu. 4-2-2026 7:00 AM" (fishingreservations.net)
+  const frMatch = text.match(/\w+\.?\s+(\d{1,2})-(\d{1,2})(?:-(\d{4}))?\s+([\d:]+\s*[APap][Mm])/);
+  if (frMatch) {
+    const month = parseInt(frMatch[1], 10);
+    const day = parseInt(frMatch[2], 10);
+    const year = frMatch[3] ? parseInt(frMatch[3], 10) : new Date().getFullYear();
+    const timeStr = frMatch[4];
+    const attempt = new Date(`${month}/${day}/${year} ${timeStr}`);
+    if (!isNaN(attempt.getTime())) return attempt;
+  }
+
+  // Pattern 2: "Apr 15, 2026 5:30 AM" or "April 15, 2026"
   const d = new Date(text);
   if (!isNaN(d.getTime()) && d.getFullYear() >= 2024) return d;
 
-  // Pattern: "4/15/2026 5:30 AM"
+  // Pattern 3: "4/15/2026 5:30 AM"
   const m = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*(.*)/);
   if (m) {
     const attempt = new Date(`${m[1]}/${m[2]}/${m[3]} ${m[4] || ""}`.trim());
@@ -168,51 +184,64 @@ export function isReminderWindowNow(departureDate) {
 
 // ── Notification templates (CRM-style copy) ─────────────────────
 
+/**
+ * Build CRM-style push notification copy.
+ *
+ * iOS/Android push constraints:
+ *   Title — bold, ~2 lines max on lock screen (~50 chars safe)
+ *   Body  — regular weight, ~3 lines (~90 chars safe)
+ *
+ * Pattern: Boat name is ALWAYS the title (instant recognition).
+ *          Body = trip context + one clear signal.
+ *          No filler words. Every word earns its place.
+ */
+// Strip verbose modifiers that bloat notification copy
+function shortTripType(raw) {
+  return String(raw || "")
+    .replace(/\b(Limited Load|Freelance|Open Party)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function buildLifecycleMessage(stage, trip) {
-  const boatName = trip.boat_name || "the boat";
-  const tripName = trip.trip_name || "Upcoming trip";
+  const boat = trip.boat_name || "Trip";
+  const tripType = shortTripType(trip.trip_name) || "trip";
   const departure = trip.departure_text || "";
   const spots = trip.open_spots;
-  const price = trip.price_text || "";
 
   switch (stage) {
     case STAGES.PUBLISHED:
       return {
-        title: `New trip: ${tripName}`,
-        body: [departure, spots != null ? `${spots} spots available` : null, price]
-          .filter(Boolean).join(" · "),
+        title: boat,
+        body: `New ${tripType} — ${departure || "Book now"}`,
         urgency: "normal"
       };
 
     case STAGES.FILLING_UP:
       return {
-        title: `${tripName} is filling up`,
-        body: spots != null
-          ? `Only ${spots} spots left. ${departure ? departure + "." : ""}`
-          : `Spots are going fast. ${departure ? departure + "." : ""}`,
+        title: boat,
+        body: `${tripType} filling up — ${spots != null ? `${spots} spots left` : "book soon"}`,
         urgency: "high"
       };
 
     case STAGES.LAST_CHANCE:
       return {
-        title: `Last ${spots ?? "few"} spots — ${tripName}`,
-        body: `Almost full.${departure ? " " + departure + "." : ""} Don't miss out.`,
+        title: boat,
+        body: `Only ${spots ?? "a few"} spots left on ${tripType}`,
         urgency: "high"
       };
 
     case STAGES.REOPENED:
       return {
-        title: `Spot just opened — ${tripName}`,
-        body: `Was sold out, now has ${spots ?? "open"} spot${spots !== 1 ? "s" : ""}. Book before it fills again.`,
+        title: boat,
+        body: `Spot opened on ${tripType} — was sold out`,
         urgency: "critical"
       };
 
     case STAGES.REMINDER:
       return {
-        title: `Trip reminder: ${tripName}`,
-        body: departure
-          ? `Departing ${departure}. Get your gear ready!`
-          : `Your trip is coming up soon. Get your gear ready!`,
+        title: boat,
+        body: `${tripType} departs ${departure || "tomorrow"}`,
         urgency: "normal"
       };
 

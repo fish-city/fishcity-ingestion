@@ -138,55 +138,48 @@ export async function fetchTrips(url, bookingBase, partner) {
   const $ = cheerio.load(res.data);
   const rows = [];
 
-  // Strategy: find every .trip-info element, walk up to the nearest container
-  // (tr, div.row, or td) that also holds .trip-depart, then extract all fields.
-  $(".trip-info").each((_, infoEl) => {
-    const $info = $(infoEl);
+  // Strategy: find every <tr> that contains a .trip-info element.
+  // fishingreservations.net nests Bootstrap grid divs (.trip-info, .trip-depart,
+  // .trip-spots etc.) inside <td> cells within <tr> rows.  Trip IDs come from
+  // either td[data-trip-id] attributes or <a href="...?trip_id=X"> links.
+  $("tr").each((_, tr) => {
+    const $tr = $(tr);
+    const $info = $tr.find(".trip-info").first();
+    if (!$info.length) return; // Not a trip row
 
-    // Walk up to find the container that holds all trip fields.
-    // On El Dorado this is a <tr>; on Oceanside it may be a parent <tr> or
-    // the page-level container. We climb until we find .trip-depart as a sibling.
-    let container = $info.parent();
-    for (let depth = 0; depth < 6; depth++) {
-      if (container.find(".trip-depart").length > 0 && container.find(".trip-spots").length > 0) break;
-      container = container.parent();
-    }
-
-    // ── Extract trip ID from booking link ────────────────────────
+    // ── Extract trip ID ─────────────────────────────────────────
     let tripId = null;
-
-    // Method 1: <a href="...?trip_id=XXXX"> inside the container
     let bookingHref = "";
-    const bookingLink = container.find('a[href*="trip_id"]').first();
+
+    // Method 1: td[data-trip-id] (El Dorado, El Patron)
+    const tripCell = $tr.find("td[data-trip-id]").first();
+    if (tripCell.length) tripId = tripCell.attr("data-trip-id");
+
+    // Method 2: <a href="...?trip_id=XXXX"> booking link
+    const bookingLink = $tr.find('a[href*="trip_id"]').first();
     if (bookingLink.length) {
       bookingHref = bookingLink.attr("href") || "";
-      const m = bookingHref.match(/trip_id=(\d+)/);
-      if (m) tripId = m[1];
-    }
-
-    // Method 2: td[data-trip-id] inside the container (El Dorado)
-    if (!tripId) {
-      const tripCell = container.find("td[data-trip-id]").first();
-      if (tripCell.length) tripId = tripCell.attr("data-trip-id");
+      if (!tripId) {
+        const m = bookingHref.match(/trip_id=(\d+)/);
+        if (m) tripId = m[1];
+      }
     }
 
     if (!tripId) return; // Skip rows without a trip ID
 
-    // Build the booking URL from the actual page link when possible
-    const baseUrl = new URL(url);
+    // Build booking URL from actual page link, fallback to config base
     const resolvedBookingUrl = bookingHref
-      ? new URL(bookingHref, baseUrl).href
+      ? new URL(bookingHref, url).href
       : `${bookingBase}${tripId}`;
 
     // ── Extract boat name (from <strong>) and trip type (text node) ──
     const boatStrong = $info.find("strong").first();
     const boat_name = clean(boatStrong.text());
-    // Trip type is the remaining text after removing the <strong> content
     const fullInfo = clean($info.text());
     const trip_name = clean(fullInfo.replace(boat_name, ""));
 
-    // ── Extract remaining fields from sibling columns ────────────
-    const spotsRaw = clean(container.find(".trip-spots").first().text());
+    // ── Extract remaining fields ────────────────────────────────
+    const spotsRaw = clean($tr.find(".trip-spots").first().text());
     const spots = parseSpots(spotsRaw);
 
     rows.push({
@@ -196,10 +189,10 @@ export async function fetchTrips(url, bookingBase, partner) {
       booking_url: resolvedBookingUrl,
       boat_name,
       trip_name,
-      departure_text: clean(container.find(".trip-depart").first().text()),
-      return_text: clean(container.find(".trip-return").first().text()),
-      load_text: clean(container.find(".trip-load").first().text()),
-      price_text: clean(container.find(".trip-price").first().text()),
+      departure_text: clean($tr.find(".trip-depart").first().text()),
+      return_text: clean($tr.find(".trip-return").first().text()),
+      load_text: clean($tr.find(".trip-load").first().text()),
+      price_text: clean($tr.find(".trip-price").first().text()),
       spots_text: spotsRaw,
       status: spots.status,
       open_spots: spots.open_spots,
