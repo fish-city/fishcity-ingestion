@@ -58,6 +58,10 @@ function fmtList(items, empty = "none") {
   return items.length ? items.map((x) => `- ${x}`).join("\n") : `- ${empty}`;
 }
 
+function hasReason(entries, pattern) {
+  return entries.some((entry) => pattern.test(entry.reason || ""));
+}
+
 (async () => {
   await fs.mkdir(RUNS_DIR, { recursive: true });
 
@@ -86,6 +90,24 @@ function fmtList(items, empty = "none") {
   const latestFailureReasons = topReasonEntries(latest?.outcomes?.failureReasons);
   const latestSkipReasons = topReasonEntries(latest?.outcomes?.skipReasons);
   const latestSuccessReasons = topReasonEntries(latest?.outcomes?.successReasons);
+  const hasCredentialMismatch = hasReason(latestFailureReasons, /CREDENTIALS DO NOT MATCH/i);
+  const latestPushClean = Boolean(latest) && (latest?.counters?.failed ?? 0) === 0;
+  const mergeReadiness = hasCredentialMismatch
+    ? "blocked_on_backend_auth"
+    : pendingAccepted.length > 0
+      ? "blocked_on_pending_accepted_reports"
+      : latestPushClean
+        ? "evidence_ready_for_review"
+        : "needs_operator_review";
+  const nextActions = [
+    ...(hasCredentialMismatch ? ["Refresh/verify backend auth material for reference bootstrap and rerun npm run push:sd"] : []),
+    ...(pendingAccepted.length > 0
+      ? ["Review closeout_evidence_latest.md in PR notes / ticket evidence and resolve remaining accepted URLs before merge"]
+      : ["Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review"]),
+    ...(latest && (latest.linksConsidered ?? 0) === 0 && latestPushClean
+      ? ["No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"]
+      : [])
+  ];
 
   const summary = {
     generatedAt: new Date().toISOString(),
@@ -135,14 +157,12 @@ function fmtList(items, empty = "none") {
           recommendedCliArgs: orchestratorQa?.thresholdCalibration?.recommendedCliArgs || []
         }
       : null,
+    mergeReadiness,
     blockers: uniq([
-      ...(latestFailureReasons.some((x) => /CREDENTIALS DO NOT MATCH/i.test(x.reason)) ? ["Backend/API credential mismatch is blocking live push bootstrap"] : []),
+      ...(hasCredentialMismatch ? ["Backend/API credential mismatch is blocking live push bootstrap"] : []),
       ...(pendingAccepted.length > 0 ? ["Accepted reports remain pending closeout review/push"] : [])
     ]),
-    nextActions: [
-      "Refresh/verify backend auth material for reference bootstrap and rerun npm run push:sd",
-      "Review closeout_evidence_latest.md in PR notes / ticket evidence and resolve any pending accepted URLs"
-    ],
+    nextActions,
     samples: {
       pendingAccepted: pendingAccepted.slice(0, 10),
       acceptedRecent: acceptedUrls.slice(-10),
@@ -200,6 +220,9 @@ function fmtList(items, empty = "none") {
           ...((summary.qaRollup.recommendedCliArgs || []).map((x) => `  - ${x}`))
         ].join("\n")
       : "- No orchestrator QA rollup found",
+    "",
+    "## Merge readiness",
+    `- ${summary.mergeReadiness}`,
     "",
     "## Current blockers",
     fmtList(summary.blockers),

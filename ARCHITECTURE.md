@@ -65,7 +65,8 @@ For each accepted link:
    - Retry each timeout-sensitive network stage once before recording a terminal failure
 9. **Track processed URLs** in `state/processed_reports.json` to avoid re-processing
 10. **Write latest run evidence** to `runs/dev_output/report_push_latest.json` with counters, reason buckets, and sample URLs for closeout review
-11. **Generate closeout snapshot** with `npm run closeout:evidence` to produce `runs/dev_output/closeout_evidence_latest.{json,md}` for PR/ticket evidence, including pending accepted URLs, latest blocker reasons, QA rollup snapshot, and evidence freshness timestamps
+11. **Generate closeout snapshot** with `npm run closeout:evidence` to produce `runs/dev_output/closeout_evidence_latest.{json,md}` for PR/ticket evidence, including pending accepted URLs, latest blocker reasons, QA rollup snapshot, evidence freshness timestamps, and merge-readiness status
+   - `push.js` now auto-refreshes this snapshot at the end of every push run so closeout evidence stays aligned with the latest processed set
 
 ### Boat Resolution Logic
 

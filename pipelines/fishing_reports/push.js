@@ -3,6 +3,8 @@ import * as cheerio from "cheerio";
 import fs from "fs/promises";
 import path from "path";
 import dotenv from "dotenv";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { normalizeReportWithAI } from "../../core/aiNormalizer.js";
 import { referenceCache } from "../../core/referenceCache.js";
 import { buildCreateTripPayload } from "./payload.js";
@@ -10,6 +12,7 @@ import { tripExists } from "../../core/dedupCheck.js";
 
 dotenv.config();
 
+const execFileAsync = promisify(execFile);
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 const ACCEPTED_PATH = path.resolve("runs", "dev_output", "accepted.json");
 const RUNS_DIR = path.resolve("runs", "dev_output");
@@ -282,6 +285,18 @@ async function saveProcessedSet(set) {
   await fs.writeFile(PROCESSED_PATH, JSON.stringify([...set], null, 2));
 }
 
+async function regenerateCloseoutEvidence() {
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [path.resolve("scripts", "generate_closeout_evidence.mjs")], {
+      cwd: process.cwd()
+    });
+    if (stdout?.trim()) console.log(stdout.trim());
+    if (stderr?.trim()) console.warn(stderr.trim());
+  } catch (err) {
+    console.warn(`Closeout evidence refresh failed: ${err.message}`);
+  }
+}
+
 async function loadCanonicalLocationMap() {
   const json = JSON.parse(await fs.readFile(CANONICAL_MAP_PATH, "utf8"));
   const locationByLanding = new Map();
@@ -484,5 +499,6 @@ async function loadCanonicalLocationMap() {
     summary.finishedAt = new Date().toISOString();
     summary.durationMs = new Date(summary.finishedAt).getTime() - new Date(summary.startedAt).getTime();
     await writeLatestSummary(summary);
+    await regenerateCloseoutEvidence();
   }
 })();
