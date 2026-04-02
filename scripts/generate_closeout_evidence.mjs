@@ -1,9 +1,13 @@
 import fs from "fs/promises";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
+const execFileAsync = promisify(execFile);
 const ROOT = process.cwd();
 const RUNS_DIR = path.join(ROOT, "runs", "dev_output");
 const STATE_DIR = path.join(ROOT, "state");
+const QA_ROLLUP_STALE_HOURS = 24;
 
 const PATHS = {
   accepted: path.join(RUNS_DIR, "accepted.json"),
@@ -62,16 +66,49 @@ function hasReason(entries, pattern) {
   return entries.some((entry) => pattern.test(entry.reason || ""));
 }
 
+function hoursSince(timestamp) {
+  if (!timestamp) return null;
+  const ms = Date.now() - Date.parse(timestamp);
+  if (!Number.isFinite(ms)) return null;
+  return Number((ms / (1000 * 60 * 60)).toFixed(1));
+}
+
+async function getRepoState() {
+  try {
+    const [{ stdout: branchStdout }, { stdout: headStdout }, { stdout: statusStdout }] = await Promise.all([
+      execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: ROOT }),
+      execFileAsync("git", ["rev-parse", "HEAD"], { cwd: ROOT }),
+      execFileAsync("git", ["status", "--short"], { cwd: ROOT })
+    ]);
+
+    const entries = statusStdout
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+
+    return {
+      branch: branchStdout.trim() || null,
+      head: headStdout.trim() || null,
+      dirty: entries.length > 0,
+      changedFilesCount: entries.length,
+      changedFilesSample: entries.slice(0, 10)
+    };
+  } catch {
+    return null;
+  }
+}
+
 (async () => {
   await fs.mkdir(RUNS_DIR, { recursive: true });
 
-  const [accepted, processed, latest, deadLetter, orchestratorQa, refSnapshotCache] = await Promise.all([
+  const [accepted, processed, latest, deadLetter, orchestratorQa, refSnapshotCache, repoState] = await Promise.all([
     readJson(PATHS.accepted, []),
     readJson(PATHS.processed, []),
     readJson(PATHS.reportPushLatest, null),
     readJson(PATHS.deadLetter, []),
     readJson(PATHS.orchestratorQa, null),
-    readJson(PATHS.refSnapshotCache, null)
+    readJson(PATHS.refSnapshotCache, null),
+    getRepoState()
   ]);
 
   const acceptedUrls = accepted.map((x) => x?.link || x?.url).filter(Boolean);
@@ -92,15 +129,24 @@ function hasReason(entries, pattern) {
   const latestSuccessReasons = topReasonEntries(latest?.outcomes?.successReasons);
   const hasCredentialMismatch = hasReason(latestFailureReasons, /CREDENTIALS DO NOT MATCH/i);
   const latestPushClean = Boolean(latest) && (latest?.counters?.failed ?? 0) === 0;
+  const qaRollupAgeHours = hoursSince(orchestratorQa?.generatedAt);
+  const qaRollupStale = qaRollupAgeHours !== null && qaRollupAgeHours > QA_ROLLUP_STALE_HOURS;
+  const repoDirty = Boolean(repoState?.dirty);
   const mergeReadiness = hasCredentialMismatch
     ? "blocked_on_backend_auth"
     : pendingAccepted.length > 0
       ? "blocked_on_pending_accepted_reports"
-      : latestPushClean
-        ? "evidence_ready_for_review"
-        : "needs_operator_review";
+      : repoDirty
+        ? "blocked_on_repo_cleanliness"
+        : qaRollupStale
+          ? "blocked_on_stale_qa_rollup"
+          : latestPushClean
+            ? "evidence_ready_for_review"
+            : "needs_operator_review";
   const nextActions = [
     ...(hasCredentialMismatch ? ["Refresh/verify backend auth material for reference bootstrap and rerun npm run push:sd"] : []),
+    ...(repoDirty ? ["Clean or intentionally stage the repo diff before calling the packet merge-ready; current working tree is not clean"] : []),
+    ...(qaRollupStale ? [`Regenerate orchestrator QA rollup evidence; current snapshot is ${qaRollupAgeHours}h old`] : []),
     ...(pendingAccepted.length > 0
       ? ["Review closeout_evidence_latest.md in PR notes / ticket evidence and resolve remaining accepted URLs before merge"]
       : ["Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review"]),
@@ -150,6 +196,8 @@ function hasReason(entries, pattern) {
     qaRollup: orchestratorQa
       ? {
           generatedAt: orchestratorQa.generatedAt || null,
+          ageHours: qaRollupAgeHours,
+          stale: qaRollupStale,
           runsTotal: orchestratorQa?.totals?.runsTotal ?? null,
           successRatePct: orchestratorQa?.totals?.successRatePct ?? null,
           failureRatePct: orchestratorQa?.totals?.failureRatePct ?? null,
@@ -157,10 +205,13 @@ function hasReason(entries, pattern) {
           recommendedCliArgs: orchestratorQa?.thresholdCalibration?.recommendedCliArgs || []
         }
       : null,
+    repoState,
     mergeReadiness,
     blockers: uniq([
       ...(hasCredentialMismatch ? ["Backend/API credential mismatch is blocking live push bootstrap"] : []),
-      ...(pendingAccepted.length > 0 ? ["Accepted reports remain pending closeout review/push"] : [])
+      ...(pendingAccepted.length > 0 ? ["Accepted reports remain pending closeout review/push"] : []),
+      ...(repoDirty ? [`Repo is dirty (${repoState.changedFilesCount} changed files) so evidence is not yet in a clean review state`] : []),
+      ...(qaRollupStale ? [`QA rollup snapshot is stale (${qaRollupAgeHours}h old)`] : [])
     ]),
     nextActions,
     samples: {
@@ -212,6 +263,8 @@ function hasReason(entries, pattern) {
     orchestratorQa
       ? [
           `- Rollup generated: ${summary.qaRollup.generatedAt || "n/a"}`,
+          `- Rollup age (hours): ${summary.qaRollup.ageHours ?? "n/a"}`,
+          `- Rollup stale: ${summary.qaRollup.stale}`,
           `- Runs total: ${summary.qaRollup.runsTotal}`,
           `- Success rate: ${summary.qaRollup.successRatePct}%`,
           `- Failure rate: ${summary.qaRollup.failureRatePct}%`,
@@ -220,6 +273,18 @@ function hasReason(entries, pattern) {
           ...((summary.qaRollup.recommendedCliArgs || []).map((x) => `  - ${x}`))
         ].join("\n")
       : "- No orchestrator QA rollup found",
+    "",
+    "## Repo state",
+    repoState
+      ? [
+          `- Branch: ${summary.repoState.branch || "n/a"}`,
+          `- HEAD: ${summary.repoState.head || "n/a"}`,
+          `- Dirty: ${summary.repoState.dirty}`,
+          `- Changed files: ${summary.repoState.changedFilesCount}`,
+          "- Changed file sample:",
+          ...((summary.repoState.changedFilesSample || []).map((x) => `  - ${x}`))
+        ].join("\n")
+      : "- Repo state unavailable",
     "",
     "## Merge readiness",
     `- ${summary.mergeReadiness}`,

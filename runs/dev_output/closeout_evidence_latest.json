@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-04-02T10:47:07.654Z",
+  "counts": {
+    "acceptedTotal": 72,
+    "acceptedCanonicalTotal": 59,
+    "processedTotal": 218,
+    "processedCanonicalTotal": 161,
+    "pendingAcceptedTotal": 0,
+    "pendingAcceptedPct": 0,
+    "deadLetterTotal": 5
+  },
+  "latestPush": {
+    "startedAt": "2026-04-02T10:18:01.674Z",
+    "finishedAt": "2026-04-02T10:18:05.895Z",
+    "durationMs": 4221,
+    "dryRun": false,
+    "linksConsidered": 0,
+    "attempted": 0,
+    "succeeded": 0,
+    "skippedTerminal": 0,
+    "failed": 0,
+    "retriedTimeouts": 0,
+    "topFailureReasons": [],
+    "topSkipReasons": [],
+    "topSuccessReasons": [],
+    "failureSamples": [],
+    "skipSamples": [],
+    "successSamples": []
+  },
+  "evidenceFreshness": {
+    "acceptedUpdatedAt": "2026-04-02T10:18:01.435Z",
+    "processedUpdatedAt": "2026-04-02T10:18:05.895Z",
+    "latestPushUpdatedAt": "2026-04-02T10:18:05.897Z",
+    "referenceSnapshotUpdatedAt": "2026-04-02T10:18:05.887Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-02T10:18:05.882Z"
+  },
+  "qaRollup": {
+    "generatedAt": "2026-03-07T18:42:12.952Z",
+    "ageHours": 616.1,
+    "stale": true,
+    "runsTotal": 48,
+    "successRatePct": 89.6,
+    "failureRatePct": 10.4,
+    "thresholdStatus": "ok",
+    "recommendedCliArgs": [
+      "--min-success-rate 82",
+      "--max-failure-rate 18",
+      "--max-skip-rate 0",
+      "--stage-max-avg.snapshot=5355",
+      "--stage-max-avg.diff=644",
+      "--stage-max-avg.rules=218",
+      "--stage-max-avg.push=730",
+      "--stage-max-avg.totalPipeline=6945"
+    ]
+  },
+  "repoState": {
+    "branch": "feature/pm/fcc-54-59-closeout-evidence",
+    "head": "c4e40313f64493d282d9363ab784dc9deec87db0",
+    "dirty": true,
+    "changedFilesCount": 5,
+    "changedFilesSample": [
+      " M package-lock.json",
+      " M scripts/generate_closeout_evidence.mjs",
+      "?? DEPLOY_V04.sh",
+      "?? DEPLOY_V05.sh",
+      "?? logs/"
+    ]
+  },
+  "mergeReadiness": "blocked_on_repo_cleanliness",
+  "blockers": [
+    "Repo is dirty (5 changed files) so evidence is not yet in a clean review state",
+    "QA rollup snapshot is stale (616.1h old)"
+  ],
+  "nextActions": [
+    "Clean or intentionally stage the repo diff before calling the packet merge-ready; current working tree is not clean",
+    "Regenerate orchestrator QA rollup evidence; current snapshot is 616.1h old",
+    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review",
+    "No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"
+  ],
+  "samples": {
+    "pendingAccepted": [],
+    "acceptedRecent": [
+      "https://www.longrangesportfishing.net/reports/236417/2026-season-starts-may-8,-2026.php",
+      "https://www.longrangesportfishing.net/reports/236402/opportunity.php",
+      "https://www.longrangesportfishing.net/reports/236132/trip-openings-in-april.php",
+      "https://www.longrangesportfishing.net/reports/236127/bluefin-limits.php",
+      "https://www.longrangesportfishing.net/reports/235942/the-great-fishing-continues.php",
+      "https://www.longrangesportfishing.net/reports/235928/bluefin-limits!.php",
+      "https://www.longrangesportfishing.net/reports/235921/lets-talk-hookup.php",
+      "https://www.longrangesportfishing.net/reports/235909/maintenance-2026.php",
+      "https://www.longrangesportfishing.net/reports/235894/new-trip!.php",
+      "https://www.longrangesportfishing.net/reports/235874/and-thats-a-wrap!.php"
+    ],
+    "processedRecent": [
+      "https://www.sandiegofishreports.com/fish_reports/236478/wednesday-update.php",
+      "https://www.sandiegofishreports.com/fish_reports/236477/wednesday-wrap-up-@-plsf.php",
+      "https://www.norcalfishreports.com/fish_reports/236479/fish-per-rod-on-bass-and-4-halibut.php",
+      "https://www.norcalfishreports.com/fish_reports/236480/back-out-on-the-water-today.php",
+      "https://www.socalfishreports.com/fish_reports/236483/loaded-bags!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236483/loaded-bags!.php",
+      "https://www.socalfishreports.com/fish_reports/236482/mirage-fish-count!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236482/mirage-fish-count!.php",
+      "https://www.socalfishreports.com/fish_reports/236484/cod!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236484/cod!.php"
+    ]
+  }
+}
