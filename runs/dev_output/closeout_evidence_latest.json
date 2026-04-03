@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-04-03T10:47:06.077Z",
+  "generatedAt": "2026-04-03T12:46:24.013Z",
   "counts": {
     "acceptedTotal": 74,
-    "acceptedCanonicalTotal": 66,
+    "acceptedCanonicalTotal": 65,
     "processedTotal": 246,
     "processedCanonicalTotal": 181,
     "pendingAcceptedTotal": 0,
@@ -10,46 +10,36 @@
     "deadLetterTotal": 5
   },
   "latestPush": {
-    "startedAt": "2026-04-03T10:35:04.728Z",
-    "finishedAt": "2026-04-03T10:35:08.399Z",
-    "durationMs": 3671,
+    "startedAt": "2026-04-03T12:36:24.842Z",
+    "finishedAt": "2026-04-03T12:36:28.167Z",
+    "durationMs": 3325,
     "dryRun": false,
-    "linksConsidered": 1,
+    "linksConsidered": 0,
     "attempted": 0,
     "succeeded": 0,
-    "skippedTerminal": 1,
+    "skippedTerminal": 0,
     "failed": 0,
     "retriedTimeouts": 0,
     "topFailureReasons": [],
-    "topSkipReasons": [
-      {
-        "reason": "NO_IMAGE",
-        "count": 1
-      }
-    ],
+    "topSkipReasons": [],
     "topSuccessReasons": [],
     "failureSamples": [],
-    "skipSamples": [
-      {
-        "url": "https://www.sandiegofishreports.com/fish_reports/236524/friday.php",
-        "reason": "NO_IMAGE"
-      }
-    ],
+    "skipSamples": [],
     "successSamples": []
   },
   "evidenceFreshness": {
-    "acceptedUpdatedAt": "2026-04-03T10:35:04.529Z",
+    "acceptedUpdatedAt": "2026-04-03T12:36:24.595Z",
     "acceptedNewerThanLatestPush": false,
-    "processedUpdatedAt": "2026-04-03T10:35:08.399Z",
-    "latestPushUpdatedAt": "2026-04-03T10:35:08.400Z",
+    "processedUpdatedAt": "2026-04-03T12:36:28.167Z",
+    "latestPushUpdatedAt": "2026-04-03T12:36:28.169Z",
     "latestPushAgeHours": 0.2,
     "latestPushStale": false,
-    "referenceSnapshotUpdatedAt": "2026-04-03T10:35:08.004Z",
-    "referenceSnapshotSourceTimestamp": "2026-04-03T10:35:08.001Z"
+    "referenceSnapshotUpdatedAt": "2026-04-03T12:36:28.161Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-03T12:36:28.158Z"
   },
   "qaRollup": {
     "generatedAt": "2026-04-03T07:51:22.013Z",
-    "ageHours": 2.9,
+    "ageHours": 4.9,
     "stale": false,
     "runsTotal": 162,
     "successRatePct": 98.1,
@@ -64,39 +54,31 @@
   },
   "repoState": {
     "branch": "feature/pm/fcc-54-59-closeout-evidence",
-    "head": "a0bdbefc86ffffc3a5e4978c49d1ea38bee90cb5",
-    "dirty": true,
-    "changedFilesCount": 4,
-    "changedFilesSample": [
-      " M ARCHITECTURE.md",
-      " M runs/dev_output/closeout_evidence_latest.json",
-      " M runs/dev_output/closeout_evidence_latest.md",
-      " M scripts/generate_closeout_evidence.mjs"
-    ],
-    "generatedEvidenceChanges": [
-      " M runs/dev_output/closeout_evidence_latest.json",
-      " M runs/dev_output/closeout_evidence_latest.md"
-    ],
-    "generatedEvidenceChangesCount": 2,
+    "head": "e82c5d70ef5aba8eab6c7a03d40c5e10988fc1b7",
+    "dirty": false,
+    "changedFilesCount": 0,
+    "changedFilesSample": [],
+    "generatedEvidenceChanges": [],
+    "generatedEvidenceChangesCount": 0,
     "localArtifactChanges": [],
     "localArtifactChangesCount": 0,
-    "reviewBlockingChanges": [
-      " M ARCHITECTURE.md",
-      " M scripts/generate_closeout_evidence.mjs"
-    ],
-    "reviewBlockingChangesCount": 2,
-    "reviewBlockingDirty": true
+    "reviewBlockingChanges": [],
+    "reviewBlockingChangesCount": 0,
+    "reviewBlockingDirty": false
   },
-  "mergeReadiness": "blocked_on_repo_cleanliness",
-  "blockers": [
-    "Repo has 2 review-blocking changed file(s)"
-  ],
+  "closeoutProgress": {
+    "pct": 100,
+    "summary": "100% complete",
+    "targetState": "ready_for_reviewer_ack"
+  },
+  "mergeReadiness": "evidence_ready_for_review",
+  "blockers": [],
   "ackActions": [
     "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence and request reviewer ACK"
   ],
   "nextActions": [
-    "Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready",
-    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review"
+    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review",
+    "No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"
   ],
   "samples": {
     "pendingAccepted": [],

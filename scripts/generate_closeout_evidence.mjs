@@ -66,6 +66,28 @@ function pct(part, total) {
   return Number(((part / total) * 100).toFixed(1));
 }
 
+function closeoutProgressPct({
+  hasCredentialMismatch,
+  acceptedNewerThanLatestPush,
+  latestPushStale,
+  pendingAcceptedCount,
+  reviewBlockingDirty,
+  qaRollupStale,
+  latestPushClean
+}) {
+  const penalties = [
+    hasCredentialMismatch ? 35 : 0,
+    acceptedNewerThanLatestPush ? 20 : 0,
+    latestPushStale ? 20 : 0,
+    pendingAcceptedCount > 0 ? 15 : 0,
+    reviewBlockingDirty ? 5 : 0,
+    qaRollupStale ? 5 : 0,
+    latestPushClean ? 0 : 5
+  ].reduce((sum, value) => sum + value, 0);
+
+  return Math.max(0, Math.min(100, 100 - penalties));
+}
+
 function fmtList(items, empty = "none") {
   return items.length ? items.map((x) => `- ${x}`).join("\n") : `- ${empty}`;
 }
@@ -165,6 +187,15 @@ async function getRepoState() {
   const qaRollupAgeHours = hoursSince(orchestratorQa?.generatedAt);
   const qaRollupStale = qaRollupAgeHours !== null && qaRollupAgeHours > QA_ROLLUP_STALE_HOURS;
   const reviewBlockingDirty = Boolean(repoState?.reviewBlockingDirty);
+  const progressPct = closeoutProgressPct({
+    hasCredentialMismatch,
+    acceptedNewerThanLatestPush,
+    latestPushStale,
+    pendingAcceptedCount: pendingAccepted.length,
+    reviewBlockingDirty,
+    qaRollupStale,
+    latestPushClean
+  });
   const mergeReadiness = hasCredentialMismatch
     ? "blocked_on_backend_auth"
     : acceptedNewerThanLatestPush || latestPushStale
@@ -257,6 +288,11 @@ async function getRepoState() {
         }
       : null,
     repoState,
+    closeoutProgress: {
+      pct: progressPct,
+      summary: `${progressPct}% complete`,
+      targetState: mergeReadiness === "evidence_ready_for_review" ? "ready_for_reviewer_ack" : "packet_not_yet_ready"
+    },
     mergeReadiness,
     blockers: uniq([
       ...(hasCredentialMismatch ? ["Backend/API credential mismatch is blocking live push bootstrap"] : []),
@@ -349,6 +385,10 @@ async function getRepoState() {
           ...((summary.repoState.localArtifactChanges || []).map((x) => `  - ${x}`))
         ].join("\n")
       : "- Repo state unavailable",
+    "",
+    "## Closeout progress",
+    `- ${summary.closeoutProgress.summary}`,
+    `- Target state: ${summary.closeoutProgress.targetState}`,
     "",
     "## Merge readiness",
     `- ${summary.mergeReadiness}`,
