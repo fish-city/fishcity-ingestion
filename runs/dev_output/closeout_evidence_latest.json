@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-04-02T12:48:53.484Z",
+  "generatedAt": "2026-04-03T07:51:22.164Z",
   "counts": {
-    "acceptedTotal": 72,
-    "acceptedCanonicalTotal": 59,
-    "processedTotal": 218,
-    "processedCanonicalTotal": 161,
+    "acceptedTotal": 74,
+    "acceptedCanonicalTotal": 66,
+    "processedTotal": 245,
+    "processedCanonicalTotal": 180,
     "pendingAcceptedTotal": 0,
     "pendingAcceptedPct": 0,
     "deadLetterTotal": 5
   },
   "latestPush": {
-    "startedAt": "2026-04-02T12:19:20.772Z",
-    "finishedAt": "2026-04-02T12:19:24.352Z",
-    "durationMs": 3580,
+    "startedAt": "2026-04-03T07:33:05.547Z",
+    "finishedAt": "2026-04-03T07:33:09.153Z",
+    "durationMs": 3606,
     "dryRun": false,
     "linksConsidered": 0,
     "attempted": 0,
@@ -28,42 +28,35 @@
     "successSamples": []
   },
   "evidenceFreshness": {
-    "acceptedUpdatedAt": "2026-04-02T12:19:20.592Z",
-    "processedUpdatedAt": "2026-04-02T12:19:24.353Z",
-    "latestPushUpdatedAt": "2026-04-02T12:19:24.354Z",
-    "referenceSnapshotUpdatedAt": "2026-04-02T12:19:24.350Z",
-    "referenceSnapshotSourceTimestamp": "2026-04-02T12:19:24.348Z"
+    "acceptedUpdatedAt": "2026-04-03T07:33:05.305Z",
+    "processedUpdatedAt": "2026-04-03T07:33:09.153Z",
+    "latestPushUpdatedAt": "2026-04-03T07:33:09.154Z",
+    "referenceSnapshotUpdatedAt": "2026-04-03T07:33:09.146Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-03T07:33:09.142Z"
   },
   "qaRollup": {
-    "generatedAt": "2026-03-07T18:42:12.952Z",
-    "ageHours": 618.1,
-    "stale": true,
-    "runsTotal": 48,
-    "successRatePct": 89.6,
-    "failureRatePct": 10.4,
+    "generatedAt": "2026-04-03T07:51:22.013Z",
+    "ageHours": 0,
+    "stale": false,
+    "runsTotal": 162,
+    "successRatePct": 98.1,
+    "failureRatePct": 1.9,
     "thresholdStatus": "ok",
     "recommendedCliArgs": [
-      "--min-success-rate 82",
-      "--max-failure-rate 18",
+      "--min-success-rate 96",
+      "--max-failure-rate 4",
       "--max-skip-rate 0",
-      "--stage-max-avg.snapshot=5355",
-      "--stage-max-avg.diff=644",
-      "--stage-max-avg.rules=218",
-      "--stage-max-avg.push=730",
-      "--stage-max-avg.totalPipeline=6945"
+      "--stage-max-avg.totalPipeline=17339"
     ]
   },
   "repoState": {
     "branch": "feature/pm/fcc-54-59-closeout-evidence",
-    "head": "b4dd81217dddfefd870c75908ba6634c0299d0f6",
+    "head": "cef108cb847df9a79a2060f93c6e32aca75c1ff6",
     "dirty": true,
-    "changedFilesCount": 5,
+    "changedFilesCount": 2,
     "changedFilesSample": [
-      " M .gitignore",
-      " M package-lock.json",
       " M runs/dev_output/closeout_evidence_latest.json",
-      " M runs/dev_output/closeout_evidence_latest.md",
-      " M scripts/generate_closeout_evidence.mjs"
+      " M runs/dev_output/closeout_evidence_latest.md"
     ],
     "generatedEvidenceChanges": [
       " M runs/dev_output/closeout_evidence_latest.json",
@@ -72,22 +65,13 @@
     "generatedEvidenceChangesCount": 2,
     "localArtifactChanges": [],
     "localArtifactChangesCount": 0,
-    "reviewBlockingChanges": [
-      " M .gitignore",
-      " M package-lock.json",
-      " M scripts/generate_closeout_evidence.mjs"
-    ],
-    "reviewBlockingChangesCount": 3,
-    "reviewBlockingDirty": true
+    "reviewBlockingChanges": [],
+    "reviewBlockingChangesCount": 0,
+    "reviewBlockingDirty": false
   },
-  "mergeReadiness": "blocked_on_repo_cleanliness",
-  "blockers": [
-    "Repo has 3 review-blocking changed file(s)",
-    "QA rollup snapshot is stale (618.1h old)"
-  ],
+  "mergeReadiness": "evidence_ready_for_review",
+  "blockers": [],
   "nextActions": [
-    "Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready",
-    "Regenerate orchestrator QA rollup evidence; current snapshot is 618.1h old",
     "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review",
     "No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"
   ],
@@ -106,16 +90,16 @@
       "https://www.longrangesportfishing.net/reports/235874/and-thats-a-wrap!.php"
     ],
     "processedRecent": [
-      "https://www.sandiegofishreports.com/fish_reports/236478/wednesday-update.php",
-      "https://www.sandiegofishreports.com/fish_reports/236477/wednesday-wrap-up-@-plsf.php",
-      "https://www.norcalfishreports.com/fish_reports/236479/fish-per-rod-on-bass-and-4-halibut.php",
-      "https://www.norcalfishreports.com/fish_reports/236480/back-out-on-the-water-today.php",
-      "https://www.socalfishreports.com/fish_reports/236483/loaded-bags!.php",
-      "https://www.sandiegofishreports.com/fish_reports/236483/loaded-bags!.php",
-      "https://www.socalfishreports.com/fish_reports/236482/mirage-fish-count!.php",
-      "https://www.sandiegofishreports.com/fish_reports/236482/mirage-fish-count!.php",
-      "https://www.socalfishreports.com/fish_reports/236484/cod!.php",
-      "https://www.sandiegofishreports.com/fish_reports/236484/cod!.php"
+      "https://www.socalfishreports.com/fish_reports/236495/local-3/4-day.php",
+      "https://www.sandiegofishreports.com/fish_reports/236495/local-3/4-day.php",
+      "https://www.socalfishreports.com/fish_reports/236499/opening-day-2026.php",
+      "https://www.sandiegofishreports.com/fish_reports/236499/opening-day-2026.php",
+      "https://www.norcalfishreports.com/fish_reports/236503/nearly-three-inches-of-rain-fell-within-the-smith-watershed-wednesday.php",
+      "https://www.norcalfishreports.com/fish_reports/236502/the-main-stem-eel-is-rising-slightly-following-tuesdays-rain-event.php",
+      "https://www.norcalfishreports.com/fish_reports/236500/the-halibut-were-biting-like-piranhas-at-times-today.php",
+      "https://www.sandiegofishreports.com/fish_reports/236522/lake-jennings-fishing-report.php",
+      "https://www.socalfishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php"
     ]
   }
 }
