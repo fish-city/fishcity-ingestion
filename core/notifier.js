@@ -201,19 +201,21 @@ async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attemp
  * Returns reminder "changes" to merge into the notification queue.
  */
 export function detectReminders(currentTrips) {
-  const reminders = [];
+  const lastChance = [];
   for (const trip of currentTrips) {
+    // Only alert for trips that still have open spots — helps operators fill remaining seats
+    if (trip.status === "full") continue;
     const dep = parseDepartureDate(trip.departure_text);
     if (dep && isReminderWindowNow(dep)) {
-      reminders.push({
-        type: "REMINDER",
-        stage: STAGES.REMINDER,
+      lastChance.push({
+        type: "LAST_CHANCE_REMINDER",
+        stage: STAGES.LAST_CHANCE,
         trip_id: trip.trip_id,
         now: trip
       });
     }
   }
-  return reminders;
+  return lastChance;
 }
 
 // ── Main export ──────────────────────────────────────────────────
@@ -249,12 +251,12 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
   }
 
   // ── Merge in departure reminders ───────────────────────────
-  const reminders = detectReminders(currentTrips);
-  if (reminders.length > 0) {
-    console.log(`[notifier] Detected ${reminders.length} departure reminder(s)`);
-    stats.reminders = reminders.length;
+  const lastChanceAlerts = detectReminders(currentTrips);
+  if (lastChanceAlerts.length > 0) {
+    console.log(`[notifier] Detected ${lastChanceAlerts.length} last-chance alert(s) — trips departing tomorrow with open spots`);
+    stats.reminders = lastChanceAlerts.length;
   }
-  const allChanges = [...changes, ...reminders];
+  const allChanges = [...changes, ...lastChanceAlerts];
 
   // ── Filter to notifiable changes ───────────────────────────
   const notifiable = allChanges.filter((c) => c.type !== "TRIP_REMOVED");

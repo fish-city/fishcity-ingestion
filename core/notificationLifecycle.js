@@ -51,10 +51,8 @@ export function classifyChange(change) {
   switch (change.type) {
     case "OPEN_TRIP":
       return STAGES.REOPENED;
-    case "FEW_SPOTS": {
-      const spots = change.now?.open_spots;
-      return (typeof spots === "number" && spots <= 3) ? STAGES.LAST_CHANCE : STAGES.FILLING_UP;
-    }
+    case "FEW_SPOTS":
+      return STAGES.FILLING_UP;
     case "NEW_TRIP":
       return STAGES.PUBLISHED;
     default:
@@ -179,7 +177,7 @@ export function isReminderWindowNow(departureDate) {
   const target = computeReminderTime(departureDate);
   if (!target) return false;
   const diff = Math.abs(Date.now() - target.getTime());
-  return diff <= 30 * 60 * 1000; // ±30 minute window
+  return diff <= 45 * 60 * 1000; // ±45 minute window (safe for hourly polling)
 }
 
 // ── Notification templates (CRM-style copy) ─────────────────────
@@ -203,46 +201,54 @@ function shortTripType(raw) {
     .trim();
 }
 
+// Format departure text for notifications: "Mon. 4-27 7:00 AM" → "Monday 4/27"
+const DAY_MAP = { Sun: "Sunday", Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday" };
+
+function friendlyDeparture(raw) {
+  if (!raw) return "";
+  const text = String(raw).trim();
+  // Match: "Mon. 4-27 7:00 AM" or "Thu. 4-2-2026 7:00 AM"
+  const m = text.match(/^(\w{3})\.?\s+(\d{1,2})-(\d{1,2})(?:-\d{4})?\s/);
+  if (m) {
+    const dayName = DAY_MAP[m[1]] || m[1];
+    return `${dayName} ${m[2]}/${m[3]}`;
+  }
+  return text.replace(/\s+\d{1,2}:\d{2}\s*[APap][Mm]\s*$/, "").trim();
+}
+
 export function buildLifecycleMessage(stage, trip) {
   const boat = trip.boat_name || "Trip";
   const tripType = shortTripType(trip.trip_name) || "trip";
-  const departure = trip.departure_text || "";
+  const departure = friendlyDeparture(trip.departure_text);
   const spots = trip.open_spots;
 
   switch (stage) {
     case STAGES.PUBLISHED:
       return {
-        title: boat,
-        body: `New ${tripType} — ${departure || "Book now"}`,
+        title: `${boat}: New Trip Posted`,
+        body: `${departure}${departure && tripType ? " - " : ""}${tripType} - Book Now!`,
         urgency: "normal"
       };
 
     case STAGES.FILLING_UP:
       return {
-        title: boat,
-        body: `${tripType} filling up — ${spots != null ? `${spots} spots left` : "book soon"}`,
+        title: `${boat}: Filling Up`,
+        body: `${departure}${departure && tripType ? " - " : ""}${tripType} - ${spots != null ? `${spots} Spots Left` : "Book Soon!"}`,
         urgency: "high"
       };
 
     case STAGES.LAST_CHANCE:
       return {
-        title: boat,
-        body: `Only ${spots ?? "a few"} spots left on ${tripType}`,
+        title: `${boat}: Last Chance`,
+        body: `${departure}${departure && tripType ? " - " : ""}${tripType} - ${spots != null ? `${spots} Spots Left` : "Almost Full"} - Departs Tomorrow!`,
         urgency: "high"
       };
 
     case STAGES.REOPENED:
       return {
-        title: boat,
-        body: `Spot opened on ${tripType} — was sold out`,
+        title: `${boat}: Spot Opened`,
+        body: `${departure}${departure && tripType ? " - " : ""}${tripType} - Was Sold Out!`,
         urgency: "critical"
-      };
-
-    case STAGES.REMINDER:
-      return {
-        title: boat,
-        body: `${tripType} departs ${departure || "tomorrow"}`,
-        urgency: "normal"
       };
 
     default:
