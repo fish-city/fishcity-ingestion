@@ -176,7 +176,7 @@ async function getRepoState() {
     ...(hasCredentialMismatch ? ["Refresh/verify backend auth material for reference bootstrap and rerun npm run push:sd"] : []),
     ...(reviewBlockingDirty ? ["Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready"] : []),
     ...(!reviewBlockingDirty && (repoState?.localArtifactChangesCount ?? 0) > 0 ? ["Local-only artifacts are present (logs / DEPLOY_V*.sh) but excluded from merge-readiness; keep them untracked or remove before handoff"] : []),
-    ...(qaRollupStale ? [`Regenerate orchestrator QA rollup evidence; current snapshot is ${qaRollupAgeHours}h old`] : []),
+    ...(qaRollupStale ? [`Regenerate orchestrator QA rollup evidence with npm run qa:rollup; current snapshot is ${qaRollupAgeHours}h old`] : []),
     ...(pendingAccepted.length > 0
       ? ["Review closeout_evidence_latest.md in PR notes / ticket evidence and resolve remaining accepted URLs before merge"]
       : ["Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review"]),
