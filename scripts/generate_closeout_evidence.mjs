@@ -8,6 +8,7 @@ const ROOT = process.cwd();
 const RUNS_DIR = path.join(ROOT, "runs", "dev_output");
 const STATE_DIR = path.join(ROOT, "state");
 const QA_ROLLUP_STALE_HOURS = 24;
+const LATEST_PUSH_STALE_HOURS = 12;
 const GENERATED_EVIDENCE_PATTERNS = [
   /^runs\/dev_output\/closeout_evidence_latest\.(json|md)$/
 ];
@@ -158,22 +159,39 @@ async function getRepoState() {
   const latestSuccessReasons = topReasonEntries(latest?.outcomes?.successReasons);
   const hasCredentialMismatch = hasReason(latestFailureReasons, /CREDENTIALS DO NOT MATCH/i);
   const latestPushClean = Boolean(latest) && (latest?.counters?.failed ?? 0) === 0;
+  const latestPushAgeHours = hoursSince(latestStat?.mtime?.toISOString?.());
+  const latestPushStale = latestPushAgeHours !== null && latestPushAgeHours > LATEST_PUSH_STALE_HOURS;
+  const acceptedNewerThanLatestPush = Boolean(acceptedStat?.mtimeMs && latestStat?.mtimeMs) && acceptedStat.mtimeMs > latestStat.mtimeMs;
   const qaRollupAgeHours = hoursSince(orchestratorQa?.generatedAt);
   const qaRollupStale = qaRollupAgeHours !== null && qaRollupAgeHours > QA_ROLLUP_STALE_HOURS;
   const reviewBlockingDirty = Boolean(repoState?.reviewBlockingDirty);
   const mergeReadiness = hasCredentialMismatch
     ? "blocked_on_backend_auth"
-    : pendingAccepted.length > 0
-      ? "blocked_on_pending_accepted_reports"
-      : reviewBlockingDirty
-        ? "blocked_on_repo_cleanliness"
-        : qaRollupStale
-          ? "blocked_on_stale_qa_rollup"
-          : latestPushClean
-            ? "evidence_ready_for_review"
-            : "needs_operator_review";
+    : acceptedNewerThanLatestPush || latestPushStale
+      ? "blocked_on_stale_push_snapshot"
+      : pendingAccepted.length > 0
+        ? "blocked_on_pending_accepted_reports"
+        : reviewBlockingDirty
+          ? "blocked_on_repo_cleanliness"
+          : qaRollupStale
+            ? "blocked_on_stale_qa_rollup"
+            : latestPushClean
+              ? "evidence_ready_for_review"
+              : "needs_operator_review";
+  const ackActions = uniq([
+    ...(acceptedNewerThanLatestPush ? ["Rerun npm run push:sd so the latest accepted intake is reflected in report_push_latest.json and closeout evidence"] : []),
+    ...(latestPushStale ? [`Refresh the push evidence snapshot; report_push_latest.json is ${latestPushAgeHours}h old`] : []),
+    ...(qaRollupStale ? ["Refresh the QA rollup with npm run qa:rollup before requesting review ACK"] : []),
+    ...(pendingAccepted.length > 0 ? ["Resolve or explicitly disposition pending accepted URLs before review ACK"] : []),
+    ...(hasCredentialMismatch ? ["Backend auth material needs operator verification before merge ACK"] : []),
+    ...(!acceptedNewerThanLatestPush && !latestPushStale && !qaRollupStale && pendingAccepted.length === 0 && !hasCredentialMismatch
+      ? ["Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence and request reviewer ACK"]
+      : [])
+  ]);
   const nextActions = [
     ...(hasCredentialMismatch ? ["Refresh/verify backend auth material for reference bootstrap and rerun npm run push:sd"] : []),
+    ...(acceptedNewerThanLatestPush ? ["accepted.json is newer than report_push_latest.json; rerun npm run push:sd before calling the packet current"] : []),
+    ...(latestPushStale ? [`Regenerate push evidence with npm run push:sd; current report_push_latest.json is ${latestPushAgeHours}h old`] : []),
     ...(reviewBlockingDirty ? ["Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready"] : []),
     ...(!reviewBlockingDirty && (repoState?.localArtifactChangesCount ?? 0) > 0 ? ["Local-only artifacts are present (logs / DEPLOY_V*.sh) but excluded from merge-readiness; keep them untracked or remove before handoff"] : []),
     ...(qaRollupStale ? [`Regenerate orchestrator QA rollup evidence with npm run qa:rollup; current snapshot is ${qaRollupAgeHours}h old`] : []),
@@ -218,8 +236,11 @@ async function getRepoState() {
       : null,
     evidenceFreshness: {
       acceptedUpdatedAt: acceptedStat?.mtime?.toISOString() || null,
+      acceptedNewerThanLatestPush,
       processedUpdatedAt: processedStat?.mtime?.toISOString() || null,
       latestPushUpdatedAt: latestStat?.mtime?.toISOString() || null,
+      latestPushAgeHours,
+      latestPushStale,
       referenceSnapshotUpdatedAt: refSnapshotStat?.mtime?.toISOString() || null,
       referenceSnapshotSourceTimestamp: refSnapshotCache?.timestamp || null
     },
@@ -239,10 +260,13 @@ async function getRepoState() {
     mergeReadiness,
     blockers: uniq([
       ...(hasCredentialMismatch ? ["Backend/API credential mismatch is blocking live push bootstrap"] : []),
+      ...(acceptedNewerThanLatestPush ? ["accepted.json is newer than report_push_latest.json"] : []),
+      ...(latestPushStale ? [`Latest push evidence snapshot is stale (${latestPushAgeHours}h old)`] : []),
       ...(pendingAccepted.length > 0 ? ["Accepted reports remain pending closeout review/push"] : []),
       ...(reviewBlockingDirty ? [`Repo has ${repoState.reviewBlockingChangesCount} review-blocking changed file(s)`] : []),
       ...(qaRollupStale ? [`QA rollup snapshot is stale (${qaRollupAgeHours}h old)`] : [])
     ]),
+    ackActions,
     nextActions,
     samples: {
       pendingAccepted: pendingAccepted.slice(0, 10),
@@ -284,8 +308,11 @@ async function getRepoState() {
     "",
     "## Evidence freshness",
     `- accepted.json updated: ${summary.evidenceFreshness.acceptedUpdatedAt || "n/a"}`,
+    `- accepted newer than latest push snapshot: ${summary.evidenceFreshness.acceptedNewerThanLatestPush}`,
     `- processed_reports.json updated: ${summary.evidenceFreshness.processedUpdatedAt || "n/a"}`,
     `- report_push_latest.json updated: ${summary.evidenceFreshness.latestPushUpdatedAt || "n/a"}`,
+    `- latest push snapshot age (hours): ${summary.evidenceFreshness.latestPushAgeHours ?? "n/a"}`,
+    `- latest push snapshot stale: ${summary.evidenceFreshness.latestPushStale}`,
     `- reference snapshot cache updated: ${summary.evidenceFreshness.referenceSnapshotUpdatedAt || "n/a"}`,
     `- reference snapshot source timestamp: ${summary.evidenceFreshness.referenceSnapshotSourceTimestamp || "n/a"}`,
     "",
@@ -331,6 +358,9 @@ async function getRepoState() {
     "",
     "## Pending accepted URLs (sample)",
     fmtList(summary.samples.pendingAccepted),
+    "",
+    "## ACK / review actions still required",
+    fmtList(summary.ackActions),
     "",
     "## Next actions",
     fmtList(summary.nextActions)

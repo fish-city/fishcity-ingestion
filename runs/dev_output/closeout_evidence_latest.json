@@ -1,42 +1,55 @@
 {
-  "generatedAt": "2026-04-03T07:51:22.164Z",
+  "generatedAt": "2026-04-03T10:47:06.077Z",
   "counts": {
     "acceptedTotal": 74,
     "acceptedCanonicalTotal": 66,
-    "processedTotal": 245,
-    "processedCanonicalTotal": 180,
+    "processedTotal": 246,
+    "processedCanonicalTotal": 181,
     "pendingAcceptedTotal": 0,
     "pendingAcceptedPct": 0,
     "deadLetterTotal": 5
   },
   "latestPush": {
-    "startedAt": "2026-04-03T07:33:05.547Z",
-    "finishedAt": "2026-04-03T07:33:09.153Z",
-    "durationMs": 3606,
+    "startedAt": "2026-04-03T10:35:04.728Z",
+    "finishedAt": "2026-04-03T10:35:08.399Z",
+    "durationMs": 3671,
     "dryRun": false,
-    "linksConsidered": 0,
+    "linksConsidered": 1,
     "attempted": 0,
     "succeeded": 0,
-    "skippedTerminal": 0,
+    "skippedTerminal": 1,
     "failed": 0,
     "retriedTimeouts": 0,
     "topFailureReasons": [],
-    "topSkipReasons": [],
+    "topSkipReasons": [
+      {
+        "reason": "NO_IMAGE",
+        "count": 1
+      }
+    ],
     "topSuccessReasons": [],
     "failureSamples": [],
-    "skipSamples": [],
+    "skipSamples": [
+      {
+        "url": "https://www.sandiegofishreports.com/fish_reports/236524/friday.php",
+        "reason": "NO_IMAGE"
+      }
+    ],
     "successSamples": []
   },
   "evidenceFreshness": {
-    "acceptedUpdatedAt": "2026-04-03T07:33:05.305Z",
-    "processedUpdatedAt": "2026-04-03T07:33:09.153Z",
-    "latestPushUpdatedAt": "2026-04-03T07:33:09.154Z",
-    "referenceSnapshotUpdatedAt": "2026-04-03T07:33:09.146Z",
-    "referenceSnapshotSourceTimestamp": "2026-04-03T07:33:09.142Z"
+    "acceptedUpdatedAt": "2026-04-03T10:35:04.529Z",
+    "acceptedNewerThanLatestPush": false,
+    "processedUpdatedAt": "2026-04-03T10:35:08.399Z",
+    "latestPushUpdatedAt": "2026-04-03T10:35:08.400Z",
+    "latestPushAgeHours": 0.2,
+    "latestPushStale": false,
+    "referenceSnapshotUpdatedAt": "2026-04-03T10:35:08.004Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-03T10:35:08.001Z"
   },
   "qaRollup": {
     "generatedAt": "2026-04-03T07:51:22.013Z",
-    "ageHours": 0,
+    "ageHours": 2.9,
     "stale": false,
     "runsTotal": 162,
     "successRatePct": 98.1,
@@ -51,12 +64,14 @@
   },
   "repoState": {
     "branch": "feature/pm/fcc-54-59-closeout-evidence",
-    "head": "cef108cb847df9a79a2060f93c6e32aca75c1ff6",
+    "head": "a0bdbefc86ffffc3a5e4978c49d1ea38bee90cb5",
     "dirty": true,
-    "changedFilesCount": 2,
+    "changedFilesCount": 4,
     "changedFilesSample": [
+      " M ARCHITECTURE.md",
       " M runs/dev_output/closeout_evidence_latest.json",
-      " M runs/dev_output/closeout_evidence_latest.md"
+      " M runs/dev_output/closeout_evidence_latest.md",
+      " M scripts/generate_closeout_evidence.mjs"
     ],
     "generatedEvidenceChanges": [
       " M runs/dev_output/closeout_evidence_latest.json",
@@ -65,15 +80,23 @@
     "generatedEvidenceChangesCount": 2,
     "localArtifactChanges": [],
     "localArtifactChangesCount": 0,
-    "reviewBlockingChanges": [],
-    "reviewBlockingChangesCount": 0,
-    "reviewBlockingDirty": false
+    "reviewBlockingChanges": [
+      " M ARCHITECTURE.md",
+      " M scripts/generate_closeout_evidence.mjs"
+    ],
+    "reviewBlockingChangesCount": 2,
+    "reviewBlockingDirty": true
   },
-  "mergeReadiness": "evidence_ready_for_review",
-  "blockers": [],
+  "mergeReadiness": "blocked_on_repo_cleanliness",
+  "blockers": [
+    "Repo has 2 review-blocking changed file(s)"
+  ],
+  "ackActions": [
+    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence and request reviewer ACK"
+  ],
   "nextActions": [
-    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review",
-    "No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"
+    "Clean or intentionally stage the review-blocking repo diff before calling the packet merge-ready",
+    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review"
   ],
   "samples": {
     "pendingAccepted": [],
@@ -90,7 +113,6 @@
       "https://www.longrangesportfishing.net/reports/235874/and-thats-a-wrap!.php"
     ],
     "processedRecent": [
-      "https://www.socalfishreports.com/fish_reports/236495/local-3/4-day.php",
       "https://www.sandiegofishreports.com/fish_reports/236495/local-3/4-day.php",
       "https://www.socalfishreports.com/fish_reports/236499/opening-day-2026.php",
       "https://www.sandiegofishreports.com/fish_reports/236499/opening-day-2026.php",
@@ -99,7 +121,8 @@
       "https://www.norcalfishreports.com/fish_reports/236500/the-halibut-were-biting-like-piranhas-at-times-today.php",
       "https://www.sandiegofishreports.com/fish_reports/236522/lake-jennings-fishing-report.php",
       "https://www.socalfishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php",
-      "https://www.sandiegofishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php"
+      "https://www.sandiegofishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236524/friday.php"
     ]
   }
 }
