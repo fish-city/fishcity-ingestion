@@ -87,19 +87,55 @@ async function getAuthToken() {
   return res.data?.data?.token;
 }
 
+// ── Audience pre-check ───────────────────────────────────────────
+
+async function checkAudienceSize(token, boatId) {
+  const { API_BASE_URL } = process.env;
+  try {
+    const res = await axios.get(`${API_BASE_URL}/api/v1/audience/summary`, {
+      params: { partner_type: "boat", partner_id: boatId },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000
+    });
+    const data = res.data?.data || {};
+    return {
+      total_followers: data.total_followers || 0,
+      push_enabled: data.push_enabled || 0
+    };
+  } catch (err) {
+    console.warn(`[notifier] Audience check failed: ${err.message} — proceeding anyway`);
+    return null; // Don't block sends if the check fails
+  }
+}
+
 // ── Push API send ────────────────────────────────────────────────
+
+// Resolve targeting per partner: check PARTNER_NOTIFY_EMAILS first, then global NOTIFY_EMAILS, then audience
+function resolveRecipients(partner, boatId) {
+  const partnerKey = `${partner.toUpperCase()}_NOTIFY_EMAILS`;
+  const partnerEmails = process.env[partnerKey];
+  const globalEmails = process.env.NOTIFY_EMAILS;
+
+  if (partnerEmails) {
+    return { type: "emails", customer_emails: partnerEmails };
+  }
+  if (globalEmails) {
+    return { type: "emails", customer_emails: globalEmails };
+  }
+  // Production: audience targeting
+  return { type: "audience", partner_type: "boat", partner_id: boatId };
+}
 
 async function sendPush(token, { title, body, deepLink, boatId, partner, stage, tripId }) {
   const { API_BASE_URL } = process.env;
 
+  const recipients = resolveRecipients(partner, boatId);
   const payload = {
     title,
     body,
     destination: deepLink ? "website" : "home_feed",
     destination_params: deepLink ? { url: deepLink } : {},
-    recipients: process.env.NOTIFY_EMAILS
-      ? { type: "emails", customer_emails: process.env.NOTIFY_EMAILS }
-      : { type: "audience", partner_type: "boat", partner_id: boatId },
+    recipients,
     fallback: "home_feed"
   };
 
@@ -324,11 +360,7 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
     body += ` (+${others} more update${others > 1 ? "s" : ""})`;
   }
 
-  const targetLabel = process.env.NOTIFY_EMAILS
-    ? `emails(${process.env.NOTIFY_EMAILS})`
-    : `boat audience (boat_id=${boatId})`;
-
-  console.log(`[notifier] Stage: ${topChange.stage} | "${message.title}" → ${targetLabel}`);
+  console.log(`[notifier] Stage: ${topChange.stage} | "${message.title}"`);
   console.log(`[notifier] Body: ${body}`);
   console.log(`[notifier] Deep link: ${deepLink || "(none)"}`);
 
@@ -341,6 +373,27 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
   // ── Send ───────────────────────────────────────────────────
   try {
     const token = await getAuthToken();
+
+    // Pre-check audience size before sending (for audience targeting)
+    const recipients = resolveRecipients(partner, boatId);
+    const useAudience = recipients.type === "audience";
+    if (useAudience) {
+      const audience = await checkAudienceSize(token, boatId);
+      if (audience) {
+        console.log(`[notifier] Audience for boat ${boatId}: ${audience.total_followers} followers, ${audience.push_enabled} push-enabled`);
+        if (audience.push_enabled === 0) {
+          console.warn(`[notifier] ⚠ No push-enabled subscribers for boat ${boatId} — skipping send`);
+          stats.skipped = 1;
+          return stats;
+        }
+      }
+    }
+
+    const targetLabel = recipients.type === "emails"
+      ? `emails(${recipients.customer_emails})`
+      : `boat audience (boat_id=${boatId})`;
+    console.log(`[notifier] Sending → ${targetLabel}`);
+
     const result = await sendPush(token, {
       title: message.title,
       body,

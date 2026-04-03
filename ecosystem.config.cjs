@@ -65,10 +65,10 @@ module.exports = {
       retain: 5
     },
 
-    // ── Oceanside Partner Notifications (hourly, 7am–9pm, offset :30) ─────
+    // ── Black Pearl / Virg's Landing Notifications (hourly, 7am–9pm, offset :30) ──
     {
-      name: "fc-oceanside-notify",
-      script: "pipelines/partner_schedules/oceanside_ingest.js",
+      name: "fc-blackpearl-notify",
+      script: "pipelines/partner_schedules/blackpearl_ingest.js",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       cron_restart: "30 7-21 * * *",
       autorestart: false,
@@ -78,8 +78,8 @@ module.exports = {
         NODE_ENV: "development"
       },
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
-      error_file: "logs/oceanside-notify-error.log",
-      out_file: "logs/oceanside-notify-out.log",
+      error_file: "logs/blackpearl-notify-error.log",
+      out_file: "logs/blackpearl-notify-out.log",
       merge_logs: true,
       max_size: "10M",
       retain: 5
