@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-04-03T12:46:24.013Z",
+  "generatedAt": "2026-04-04T07:47:20.793Z",
   "counts": {
-    "acceptedTotal": 74,
-    "acceptedCanonicalTotal": 65,
-    "processedTotal": 246,
-    "processedCanonicalTotal": 181,
+    "acceptedTotal": 73,
+    "acceptedCanonicalTotal": 61,
+    "processedTotal": 264,
+    "processedCanonicalTotal": 195,
     "pendingAcceptedTotal": 0,
     "pendingAcceptedPct": 0,
     "deadLetterTotal": 5
   },
   "latestPush": {
-    "startedAt": "2026-04-03T12:36:24.842Z",
-    "finishedAt": "2026-04-03T12:36:28.167Z",
-    "durationMs": 3325,
+    "startedAt": "2026-04-04T07:18:43.056Z",
+    "finishedAt": "2026-04-04T07:18:46.604Z",
+    "durationMs": 3548,
     "dryRun": false,
     "linksConsidered": 0,
     "attempted": 0,
@@ -28,18 +28,18 @@
     "successSamples": []
   },
   "evidenceFreshness": {
-    "acceptedUpdatedAt": "2026-04-03T12:36:24.595Z",
+    "acceptedUpdatedAt": "2026-04-04T07:18:42.864Z",
     "acceptedNewerThanLatestPush": false,
-    "processedUpdatedAt": "2026-04-03T12:36:28.167Z",
-    "latestPushUpdatedAt": "2026-04-03T12:36:28.169Z",
-    "latestPushAgeHours": 0.2,
+    "processedUpdatedAt": "2026-04-04T07:18:46.604Z",
+    "latestPushUpdatedAt": "2026-04-04T07:18:46.606Z",
+    "latestPushAgeHours": 0.5,
     "latestPushStale": false,
-    "referenceSnapshotUpdatedAt": "2026-04-03T12:36:28.161Z",
-    "referenceSnapshotSourceTimestamp": "2026-04-03T12:36:28.158Z"
+    "referenceSnapshotUpdatedAt": "2026-04-04T07:18:46.599Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-04T07:18:46.597Z"
   },
   "qaRollup": {
     "generatedAt": "2026-04-03T07:51:22.013Z",
-    "ageHours": 4.9,
+    "ageHours": 23.9,
     "stale": false,
     "runsTotal": 162,
     "successRatePct": 98.1,
@@ -54,7 +54,7 @@
   },
   "repoState": {
     "branch": "feature/pm/fcc-54-59-closeout-evidence",
-    "head": "e82c5d70ef5aba8eab6c7a03d40c5e10988fc1b7",
+    "head": "60a211c45fc63da87b659055a895bb1b693fa881",
     "dirty": false,
     "changedFilesCount": 0,
     "changedFilesSample": [],
@@ -83,6 +83,7 @@
   "samples": {
     "pendingAccepted": [],
     "acceptedRecent": [
+      "https://www.longrangesportfishing.net/reports/236541/mai.php",
       "https://www.longrangesportfishing.net/reports/236417/2026-season-starts-may-8,-2026.php",
       "https://www.longrangesportfishing.net/reports/236402/opportunity.php",
       "https://www.longrangesportfishing.net/reports/236132/trip-openings-in-april.php",
@@ -91,20 +92,19 @@
       "https://www.longrangesportfishing.net/reports/235928/bluefin-limits!.php",
       "https://www.longrangesportfishing.net/reports/235921/lets-talk-hookup.php",
       "https://www.longrangesportfishing.net/reports/235909/maintenance-2026.php",
-      "https://www.longrangesportfishing.net/reports/235894/new-trip!.php",
-      "https://www.longrangesportfishing.net/reports/235874/and-thats-a-wrap!.php"
+      "https://www.longrangesportfishing.net/reports/235894/new-trip!.php"
     ],
     "processedRecent": [
-      "https://www.sandiegofishreports.com/fish_reports/236495/local-3/4-day.php",
-      "https://www.socalfishreports.com/fish_reports/236499/opening-day-2026.php",
-      "https://www.sandiegofishreports.com/fish_reports/236499/opening-day-2026.php",
-      "https://www.norcalfishreports.com/fish_reports/236503/nearly-three-inches-of-rain-fell-within-the-smith-watershed-wednesday.php",
-      "https://www.norcalfishreports.com/fish_reports/236502/the-main-stem-eel-is-rising-slightly-following-tuesdays-rain-event.php",
-      "https://www.norcalfishreports.com/fish_reports/236500/the-halibut-were-biting-like-piranhas-at-times-today.php",
-      "https://www.sandiegofishreports.com/fish_reports/236522/lake-jennings-fishing-report.php",
-      "https://www.socalfishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php",
-      "https://www.sandiegofishreports.com/fish_reports/236523/capt-tylers-first-rockfish-trip!.php",
-      "https://www.sandiegofishreports.com/fish_reports/236524/friday.php"
+      "https://www.sandiegofishreports.com/fish_reports/236532/san-nick-4-3-2026.php",
+      "https://www.socalfishreports.com/fish_reports/236533/mirage-fish-count!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236533/mirage-fish-count!.php",
+      "https://www.norcalfishreports.com/fish_reports/236536/fishing-was-excellent.php",
+      "https://www.sandiegofishreports.com/fish_reports/236538/todays-trip-we-caught-over-100-fish-for-13-people!.php",
+      "https://www.socalfishreports.com/fish_reports/236540/stuffed.php",
+      "https://www.sandiegofishreports.com/fish_reports/236540/stuffed.php",
+      "https://www.socalfishreports.com/fish_reports/236534/santa-rosa-island.php",
+      "https://www.sandiegofishreports.com/fish_reports/236534/santa-rosa-island.php",
+      "https://www.longrangesportfishing.net/reports/236541/mai.php"
     ]
   }
 }

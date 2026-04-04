@@ -10,7 +10,8 @@ const STATE_DIR = path.join(ROOT, "state");
 const QA_ROLLUP_STALE_HOURS = 24;
 const LATEST_PUSH_STALE_HOURS = 12;
 const GENERATED_EVIDENCE_PATTERNS = [
-  /^runs\/dev_output\/closeout_evidence_latest\.(json|md)$/
+  /^runs\/dev_output\/closeout_evidence_latest\.(json|md)$/,
+  /^runs\/dev_output\/closeout_brief_latest\.md$/
 ];
 const LOCAL_ARTIFACT_PATTERNS = [
   /^logs\//,
@@ -25,7 +26,8 @@ const PATHS = {
   deadLetter: path.join(STATE_DIR, "dead_letter_reports.json"),
   orchestratorQa: path.join(STATE_DIR, "orchestrator_rollup_dashboard_qa.json"),
   outJson: path.join(RUNS_DIR, "closeout_evidence_latest.json"),
-  outMd: path.join(RUNS_DIR, "closeout_evidence_latest.md")
+  outMd: path.join(RUNS_DIR, "closeout_evidence_latest.md"),
+  outBrief: path.join(RUNS_DIR, "closeout_brief_latest.md")
 };
 
 async function readJson(filePath, fallback) {
@@ -311,6 +313,34 @@ async function getRepoState() {
     }
   };
 
+  const brief = [
+    "# Fish City Ingestion Closeout Brief",
+    "",
+    `Generated: ${summary.generatedAt}`,
+    `- Progress: ${summary.closeoutProgress.summary}`,
+    `- Merge readiness: ${summary.mergeReadiness}`,
+    `- Branch: ${summary.repoState?.branch || "n/a"}`,
+    `- HEAD: ${summary.repoState?.head || "n/a"}`,
+    `- Accepted / pending: ${summary.counts.acceptedCanonicalTotal} / ${summary.counts.pendingAcceptedTotal}`,
+    `- Latest push: ${summary.latestPush?.finishedAt || "n/a"}`,
+    `- Push counters (attempted/succeeded/skipped/failed): ${summary.latestPush?.attempted ?? "n/a"}/${summary.latestPush?.succeeded ?? "n/a"}/${summary.latestPush?.skippedTerminal ?? "n/a"}/${summary.latestPush?.failed ?? "n/a"}`,
+    `- QA rollup: ${summary.qaRollup?.generatedAt || "n/a"}${summary.qaRollup ? ` (${summary.qaRollup.ageHours}h old)` : ""}`,
+    "",
+    "## Current blockers",
+    fmtList(summary.blockers),
+    "",
+    "## ACK / review actions still required",
+    fmtList(summary.ackActions),
+    "",
+    "## Next 2 moves",
+    fmtList(summary.nextActions.slice(0, 2)),
+    "",
+    "## Merge note",
+    summary.mergeReadiness === "evidence_ready_for_review"
+      ? "- Packet is ready for reviewer ACK; no direct push to main, attach this brief + closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 evidence."
+      : "- Packet is not yet reviewer-ready; clear blockers above before requesting ACK."
+  ].join("\n");
+
   const md = [
     "# Fish City Ingestion Closeout Evidence",
     "",
@@ -408,7 +438,9 @@ async function getRepoState() {
 
   await fs.writeFile(PATHS.outJson, JSON.stringify(summary, null, 2));
   await fs.writeFile(PATHS.outMd, `${md}\n`);
+  await fs.writeFile(PATHS.outBrief, `${brief}\n`);
 
   console.log(`Wrote ${PATHS.outJson}`);
   console.log(`Wrote ${PATHS.outMd}`);
+  console.log(`Wrote ${PATHS.outBrief}`);
 })();

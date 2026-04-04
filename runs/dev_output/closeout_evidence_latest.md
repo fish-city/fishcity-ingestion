@@ -1,18 +1,18 @@
 # Fish City Ingestion Closeout Evidence
 
-Generated: 2026-04-03T12:46:24.013Z
+Generated: 2026-04-04T07:47:20.793Z
 
 ## Counts
-- Accepted total: 74
-- Accepted canonical total: 65
-- Processed total: 246
-- Processed canonical total: 181
+- Accepted total: 73
+- Accepted canonical total: 61
+- Processed total: 264
+- Processed canonical total: 195
 - Pending accepted total: 0 (0%)
 - Dead-letter total: 5
 
 ## Latest push snapshot
-- Started: 2026-04-03T12:36:24.842Z
-- Finished: 2026-04-03T12:36:28.167Z
+- Started: 2026-04-04T07:18:43.056Z
+- Finished: 2026-04-04T07:18:46.604Z
 - Dry run: false
 - Links considered: 0
 - Attempted / succeeded / skipped / failed: 0 / 0 / 0 / 0
@@ -22,18 +22,18 @@ Generated: 2026-04-03T12:46:24.013Z
 - Top success reasons:
 
 ## Evidence freshness
-- accepted.json updated: 2026-04-03T12:36:24.595Z
+- accepted.json updated: 2026-04-04T07:18:42.864Z
 - accepted newer than latest push snapshot: false
-- processed_reports.json updated: 2026-04-03T12:36:28.167Z
-- report_push_latest.json updated: 2026-04-03T12:36:28.169Z
-- latest push snapshot age (hours): 0.2
+- processed_reports.json updated: 2026-04-04T07:18:46.604Z
+- report_push_latest.json updated: 2026-04-04T07:18:46.606Z
+- latest push snapshot age (hours): 0.5
 - latest push snapshot stale: false
-- reference snapshot cache updated: 2026-04-03T12:36:28.161Z
-- reference snapshot source timestamp: 2026-04-03T12:36:28.158Z
+- reference snapshot cache updated: 2026-04-04T07:18:46.599Z
+- reference snapshot source timestamp: 2026-04-04T07:18:46.597Z
 
 ## QA rollup snapshot
 - Rollup generated: 2026-04-03T07:51:22.013Z
-- Rollup age (hours): 4.9
+- Rollup age (hours): 23.9
 - Rollup stale: false
 - Runs total: 162
 - Success rate: 98.1%
@@ -47,7 +47,7 @@ Generated: 2026-04-03T12:46:24.013Z
 
 ## Repo state
 - Branch: feature/pm/fcc-54-59-closeout-evidence
-- HEAD: e82c5d70ef5aba8eab6c7a03d40c5e10988fc1b7
+- HEAD: 60a211c45fc63da87b659055a895bb1b693fa881
 - Dirty: false
 - Changed files: 0
 - Review-blocking changed files: 0

@@ -65,7 +65,7 @@ For each accepted link:
    - Retry each timeout-sensitive network stage once before recording a terminal failure
 9. **Track processed URLs** in `state/processed_reports.json` to avoid re-processing
 10. **Write latest run evidence** to `runs/dev_output/report_push_latest.json` with counters, reason buckets, and sample URLs for closeout review
-11. **Generate closeout snapshot** with `npm run closeout:evidence` to produce `runs/dev_output/closeout_evidence_latest.{json,md}` for PR/ticket evidence, including pending accepted URLs, latest blocker reasons, QA rollup snapshot, evidence freshness timestamps, explicit ACK/review actions, and merge-readiness status
+11. **Generate closeout snapshot** with `npm run closeout:evidence` to produce `runs/dev_output/closeout_evidence_latest.{json,md}` plus `runs/dev_output/closeout_brief_latest.md` for PR/ticket evidence, including pending accepted URLs, latest blocker reasons, QA rollup snapshot, evidence freshness timestamps, explicit ACK/review actions, merge-readiness status, and a compact reviewer-ready handoff brief
    - `push.js` now auto-refreshes this snapshot at the end of every push run so closeout evidence stays aligned with the latest processed set
    - Merge-readiness is blocked if the accepted intake is newer than `report_push_latest.json` or if the latest push snapshot is stale, preventing false “ready for review” packets
    - If the QA rollup evidence is stale, refresh it first with `npm run qa:rollup`, which rebuilds `state/orchestrator_rollup_dashboard_qa.json` from the cadence log so closeout review can use a fresh nightly snapshot without widening scope
