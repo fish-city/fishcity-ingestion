@@ -52,10 +52,13 @@ export function computeChanges(prevRows, currRows) {
       changes.push({ type: "SOLD_OUT", trip_id: tripId, was, now });
     }
 
-    // Spots dropping — broadened to ≤10 (was ≤5) so we catch trips before they sell out
-    // between hourly polls. Also fire on any decrease when already ≤10.
+    // Spots dropping to ≤5 — threshold backed by scarcity psychology research:
+    // single-digit availability triggers loss aversion (Kahneman); Booking.com
+    // and ticketing platforms converge on 3-5 as the FOMO threshold. 10 is
+    // too high — buyers rationalize "plenty of time" and defer.
+    // SOLD_OUT above now covers the gap if a trip jumps past 5 → 0 between polls.
     const hasSpots = Number.isFinite(now.open_spots) && now.open_spots > 0;
-    const nowFew = hasSpots && now.open_spots <= 10;
+    const nowFew = hasSpots && now.open_spots <= 5;
     const spotsDecreased = Number.isFinite(was.open_spots) && Number.isFinite(now.open_spots) && now.open_spots < was.open_spots;
     if (nowFew && spotsDecreased) {
       changes.push({ type: "FEW_SPOTS", trip_id: tripId, was, now });
