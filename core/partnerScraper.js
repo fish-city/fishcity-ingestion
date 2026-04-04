@@ -47,9 +47,17 @@ export function computeChanges(prevRows, currRows) {
       changes.push({ type: "OPEN_TRIP", trip_id: tripId, was, now });
     }
 
-    const nowFew = Number.isFinite(now.open_spots) && now.open_spots > 0 && now.open_spots <= 5;
-    const wasFew = Number.isFinite(was.open_spots) && was.open_spots > 0 && was.open_spots <= 5;
-    if (nowFew && (!wasFew || was.open_spots !== now.open_spots)) {
+    // Detect trip selling out: was open/had spots → now full
+    if (was.status !== "full" && now.status === "full") {
+      changes.push({ type: "SOLD_OUT", trip_id: tripId, was, now });
+    }
+
+    // Spots dropping — broadened to ≤10 (was ≤5) so we catch trips before they sell out
+    // between hourly polls. Also fire on any decrease when already ≤10.
+    const hasSpots = Number.isFinite(now.open_spots) && now.open_spots > 0;
+    const nowFew = hasSpots && now.open_spots <= 10;
+    const spotsDecreased = Number.isFinite(was.open_spots) && Number.isFinite(now.open_spots) && now.open_spots < was.open_spots;
+    if (nowFew && spotsDecreased) {
       changes.push({ type: "FEW_SPOTS", trip_id: tripId, was, now });
     }
   }

@@ -31,13 +31,15 @@ export const STAGES = {
   PUBLISHED: "PUBLISHED",
   FILLING_UP: "FILLING_UP",
   LAST_CHANCE: "LAST_CHANCE",
+  SOLD_OUT: "SOLD_OUT",
   REOPENED: "REOPENED",
   REMINDER: "REMINDER"
 };
 
 // Priority ordering: higher = more important
 const STAGE_PRIORITY = {
-  [STAGES.REOPENED]: 5,
+  [STAGES.REOPENED]: 6,
+  [STAGES.SOLD_OUT]: 5,
   [STAGES.LAST_CHANCE]: 4,
   [STAGES.FILLING_UP]: 3,
   [STAGES.REMINDER]: 2,
@@ -51,6 +53,8 @@ export function classifyChange(change) {
   switch (change.type) {
     case "OPEN_TRIP":
       return STAGES.REOPENED;
+    case "SOLD_OUT":
+      return STAGES.SOLD_OUT;
     case "FEW_SPOTS":
       return STAGES.FILLING_UP;
     case "NEW_TRIP":
@@ -241,6 +245,13 @@ export function buildLifecycleMessage(stage, trip) {
       return {
         title: `${boat}: Last Chance`,
         body: `${departure}${departure && tripType ? " - " : ""}${tripType} - ${spots != null ? `${spots} Spots Left` : "Almost Full"} - Departs Tomorrow!`,
+        urgency: "high"
+      };
+
+    case STAGES.SOLD_OUT:
+      return {
+        title: `${boat}: Sold Out`,
+        body: `${departure}${departure && tripType ? " - " : ""}${tripType} - Join Waitlist!`,
         urgency: "high"
       };
 
