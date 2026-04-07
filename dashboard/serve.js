@@ -2,7 +2,7 @@ import { createServer } from "http";
 import { readFile } from "fs/promises";
 import path from "path";
 
-const PORT = Number(process.env.DASHBOARD_PORT || 3847);
+const PORT = Number(process.env.PORT || process.env.DASHBOARD_PORT || 3847);
 const BASE = path.resolve(import.meta.dirname || ".");
 const STATE_DIR = path.resolve(BASE, "..", "state");
 
