@@ -6,11 +6,13 @@ import path from "path";
 // How many pages back to scrape per source (each page ~20 reports, 7 pages ≈ ~140 reports / ~2 weeks)
 const MAX_PAGES = Number(process.env.INGEST_MAX_PAGES || 7);
 
+// NorCal/flyfishing sources removed — inland lake/river reports with no SD boat
+// or landing matches. 161 of 460 processed links were from these sources and
+// produced near-zero successful pushes. Not worth the pipeline noise.
 const SOURCES = [
   {
     base: "https://www.sandiegofishreports.com",
     index: "/fish_reports/",
-    // Pagination: /fish_reports/?page=2, /fish_reports/?page=3, etc.
     paginate: (base, index, page) => page === 1 ? `${base}${index}` : `${base}${index}?page=${page}`,
     regex: /\/fish_reports\/\d+\//
   },
@@ -21,15 +23,8 @@ const SOURCES = [
     regex: /\/fish_reports\/\d+\//
   },
   {
-    base: "https://www.norcalfishreports.com",
-    index: "/fish_reports/",
-    paginate: (base, index, page) => page === 1 ? `${base}${index}` : `${base}${index}?page=${page}`,
-    regex: /\/fish_reports\/\d+\//
-  },
-  {
     base: "https://www.longrangesportfishing.net",
     index: "/reports.php",
-    // longrangesportfishing uses offset: /reports.php?start=20
     paginate: (base, index, page) => page === 1 ? `${base}${index}` : `${base}${index}?start=${(page - 1) * 20}`,
     regex: /\/reports\/\d+\//
   }

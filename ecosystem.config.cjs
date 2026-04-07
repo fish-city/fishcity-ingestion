@@ -6,9 +6,11 @@
 module.exports = {
   apps: [
     // ── Fishing Report Ingestion (3x daily: 6am, 12pm, 6pm) ──────────────
+    // Runs ingest.js first to collect fresh links, then push.js to submit them.
     {
       name: "fc-report-ingestion",
-      script: "pipelines/fishing_reports/push.js",
+      script: "sh",
+      args: "-c 'node pipelines/fishing_reports/ingest.js && node pipelines/fishing_reports/push.js'",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       cron_restart: "0 6,12,18 * * *",
       autorestart: false,          // Only run on cron, don't restart on exit
