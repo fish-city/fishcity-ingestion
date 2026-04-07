@@ -14,6 +14,9 @@ dotenv.config();
 
 const execFileAsync = promisify(execFile);
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
+// Allow fish reports to target a different API than the notification pipeline
+// Set REPORT_API_BASE_URL in .env to override (e.g. dev server while notifs go to prod)
+const REPORT_API_BASE_URL = process.env.REPORT_API_BASE_URL || process.env.API_BASE_URL;
 const ACCEPTED_PATH = path.resolve("runs", "dev_output", "accepted.json");
 const RUNS_DIR = path.resolve("runs", "dev_output");
 const REPORT_PUSH_LATEST_PATH = path.join(RUNS_DIR, "report_push_latest.json");
@@ -136,6 +139,77 @@ function canonicalReportKey(url) {
     .replace("www.flyfishingreports.com", "www.norcalfishreports.com");
 }
 
+// ── Trip type inference ──────────────────────────────────────────
+// Maps text patterns to Fish City trip_type_ids.
+// Order matters — more specific patterns checked before generic ones.
+// Falls back to id=112 ("Various") if no match found.
+
+const TRIP_TYPE_PATTERNS = [
+  // Long-range first (most specific)
+  { re: /\b7[\s-]*day\b/i, id: "23" },
+  { re: /\b6[\s-]*day\b/i, id: "22" },
+  { re: /\b4\.5[\s-]*day\b/i, id: "27" },
+  { re: /\b4[\s-]*day\b/i, id: "13" },
+  { re: /\b3\.5[\s-]*day\b/i, id: "9" },
+  { re: /\b3\.25[\s-]*day\b/i, id: "21" },
+  { re: /\b3[\s-]*day\b/i, id: "8" },
+  { re: /\b2\.75[\s-]*day\b/i, id: "26" },
+  { re: /\b2\.5[\s-]*day\b/i, id: "7" },
+  { re: /\b2[\s-]*day\b/i, id: "6" },
+  { re: /\bextended\s+1\.5[\s-]*day\b/i, id: "19" },
+  { re: /\b1\.75[\s-]*day\b/i, id: "16" },
+  { re: /\b1\.5[\s-]*day\b/i, id: "1" },
+  { re: /\breverse\s+overnight\b/i, id: "66" },
+  { re: /\bovernight\b/i, id: "15" },
+  // Full day variants
+  { re: /\bfull[\s-]*day\s+offshore\b/i, id: "110" },
+  { re: /\bfull[\s-]*day\s+coronado\b/i, id: "46" },
+  { re: /\bfull[\s-]*day\b/i, id: "14" },
+  // 3/4 day variants
+  { re: /\b3\/4[\s-]*day\s+islands\b/i, id: "10" },
+  { re: /\b3\/4[\s-]*day\s+local\b/i, id: "18" },
+  { re: /\b3\/4[\s-]*day\s+offshore\b/i, id: "11" },
+  { re: /\b3\/4[\s-]*day\b/i, id: "12" },
+  // Half day variants
+  { re: /\bextended\s+1\/2[\s-]*day\b/i, id: "28" },
+  { re: /\b(?:half|1\/2)[\s-]*day\s+twilight\b/i, id: "4" },
+  { re: /\b(?:half|1\/2)[\s-]*day\s+pm\b/i, id: "3" },
+  { re: /\b(?:half|1\/2)[\s-]*day\s+am\b/i, id: "2" },
+  { re: /\b(?:half|1\/2)[\s-]*day\b/i, id: "5" },
+  // Special
+  { re: /\blobster\b/i, id: "24" },
+];
+
+function inferTripTypeId(title, narrative, h3 = "") {
+  const text = `${h3} ${title} ${narrative}`.toLowerCase();
+  for (const { re, id } of TRIP_TYPE_PATTERNS) {
+    if (re.test(text)) return id;
+  }
+  return "112"; // "Various" — catch-all
+}
+
+// ── Anglers count extraction ─────────────────────────────────────
+// Parse common phrasings: "15 anglers", "party of 12", "12 passengers", etc.
+
+function extractAnglers(title, narrative) {
+  const text = `${title} ${narrative}`;
+  const patterns = [
+    /(\d+)\s+anglers?\b/i,
+    /\bparty\s+of\s+(\d+)\b/i,
+    /(\d+)\s+passengers?\b/i,
+    /(\d+)\s+fisherm[ae]n\b/i,
+    /\b(\d+)\s+(?:paid\s+)?rods?\b/i,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0 && n <= 200) return n; // sanity cap
+    }
+  }
+  return null;
+}
+
 // ── DETERMINISTIC boat resolution ───────────────────────────────
 // No AI, no fuzzy matching. Exact name match against backend only.
 // We build word-boundary regexes for each boat name so "Good" won't
@@ -155,11 +229,205 @@ function buildBoatMatchers() {
 }
 
 const BOAT_ALIASES = new Map([
-  ["rr3", "Red Rooster III"],
-  ["red rooster", "Red Rooster III"],
+  // ── Independence / Point Loma Sport ──
   ["indy", "Independence"],
   ["independence sportfishing", "Independence"],
-  ["new seaforth", "New Seaforth"]
+
+  // ── New Seaforth / Seaforth ──
+  ["new seaforth", "New Seaforth"],
+  ["seaforth sportfishing", "New Seaforth"],
+
+  // ── Premier ──
+  ["the premier", "Premier"],
+
+  // ── Pacific Queen ──
+  ["pac queen", "Pacific Queen"],
+  ["p queen", "Pacific Queen"],
+
+  // ── Pacific Voyager ──
+  ["pac voyager", "Pacific Voyager"],
+  ["the voyager", "Voyager"],
+
+  // ── Daily Double ──
+  ["daily dbl", "Daily Double"],
+
+  // ── Mission Belle ──
+  ["m belle", "Mission Belle"],
+  ["the belle", "Mission Belle"],
+
+  // ── New Lo-An ──
+  ["lo-an", "New Lo-An"],
+  ["loa n", "New Lo-An"],
+  ["lo an", "New Lo-An"],
+
+  // ── Polaris Supreme ──
+  ["polaris", "Polaris Supreme"],
+  ["the polaris", "Polaris Supreme"],
+
+  // ── San Diego ──
+  ["the san diego", "San Diego"],
+
+  // ── Sea Watch ──
+  ["sea watch", "Sea Watch"],
+
+  // ── Tribute ──
+  ["the tribute", "Tribute"],
+
+  // ── Tomahawk ──
+  ["the tomahawk", "Tomahawk"],
+
+  // ── Islander ──
+  ["the islander", "Islander"],
+
+  // ── Liberty ──
+  ["the liberty", "Liberty"],
+
+  // ── Fortune ──
+  ["the fortune", "Fortune"],
+
+  // ── Dolphin ──
+  ["the dolphin", "Dolphin"],
+
+  // ── Condor ──
+  ["the condor", "Condor"],
+
+  // ── Aztec ──
+  ["the aztec", "Aztec"],
+
+  // ── Apollo ──
+  ["the apollo", "Apollo"],
+
+  // ── Cortez ──
+  ["the cortez", "Cortez"],
+
+  // ── Highliner ──
+  ["the highliner", "Highliner"],
+
+  // ── Pacifica ──
+  ["the pacifica", "Pacifica"],
+
+  // ── Pegasus ──
+  ["the pegasus", "Pegasus"],
+
+  // ── Point Loma ──
+  ["the point loma", "Point Loma"],
+
+  // ── T-Bird ──
+  ["tbird", "T-Bird"],
+  ["t bird", "T-Bird"],
+  ["thunderbird", "T-Bird"],
+
+  // ── Malihini ──
+  ["the malihini", "Malihini"],
+
+  // ── Legend ──
+  ["the legend", "Legend"],
+
+  // ── Grande ──
+  ["the grande", "Grande"],
+
+  // ── Old Glory ──
+  ["the old glory", "Old Glory"],
+
+  // ── Daiwa Pacific ──
+  ["daiwa", "Daiwa Pacific"],
+
+  // ── Producer ──
+  ["the producer", "Producer"],
+
+  // ── Ranger 85 ──
+  ["ranger", "Ranger 85"],
+
+  // ── Top Gun 80 ──
+  ["top gun", "Top Gun 80"],
+
+  // ── Sea Adventure 80 ──
+  ["sea adventure", "Sea Adventure 80"],
+
+  // ── Ocean Odyssey ──
+  ["ocean odyssey", "Ocean Odyssey"],
+
+  // ── Nautilus ──
+  ["the nautilus", "Nautilus"],
+
+  // ── Excalibur ──
+  ["the excalibur", "Excalibur"],
+
+  // ── Horizon ──
+  ["the horizon", "Horizon"],
+
+  // ── Spirit of Adventure ──
+  ["spirit", "Spirit of Adventure"],
+  ["soa", "Spirit of Adventure"],
+
+  // ── Vendetta 2 ──
+  ["vendetta", "Vendetta 2"],
+
+  // ── Relentless ──
+  ["the relentless", "Relentless"],
+
+  // ── Reel Champion ──
+  ["reel champ", "Reel Champion"],
+
+  // ── Little G ──
+  ["little g", "Little G"],
+
+  // ── Southern Cal ──
+  ["southern cal", "Southern Cal"],
+  ["so cal", "Southern Cal"],
+  ["socal boat", "Southern Cal"],
+
+  // ── Chubasco II ──
+  ["chubasco", "Chubasco II"],
+
+  // ── Blue Horizon ──
+  ["blue horizon", "Blue Horizon"],
+
+  // ── Sea Star ──
+  ["sea star", "Sea Star"],
+
+  // ── Pronto ──
+  ["the pronto", "Pronto"],
+
+  // ── Electra ──
+  ["the electra", "Electra"],
+
+  // ── Fisherman III ──
+  ["fisherman 3", "Fisherman III"],
+  ["fisherman three", "Fisherman III"],
+
+  // ── El Capitan ──
+  ["el cap", "El Capitan"],
+
+  // ── El Gato Dos ──
+  ["el gato", "El Gato Dos"],
+
+  // ── Pacific Dawn ──
+  ["pac dawn", "Pacific Dawn"],
+
+  // ── Intrepid ──
+  ["the intrepid", "Intrepid"],
+
+  // ── Shogun ──
+  ["the shogun", "Shogun"],
+
+  // ── Searcher ──
+  ["the searcher", "Searcher"],
+
+  // ── Tradition ──
+  ["the tradition", "Tradition"],
+
+  // ── Lucky B ──
+  ["lucky b", "Lucky B Sportfishing"],
+
+  // ── Invader ──
+  ["the invader", "Invader"],
+
+  // ── Outer Limits ──
+  ["outer limits", "Outer Limits"],
+
+  // ── Ironclad ──
+  ["the ironclad", "Ironclad"],
 ]);
 
 function resolveBoatFromText(title, narrative, boatMatchers) {
@@ -338,11 +606,24 @@ async function loadCanonicalLocationMap() {
       try {
         const scraped = await fetchReport(url, summary);
 
-        if ((scraped.images || []).length === 0) {
-          recordSkip(summary, url, "NO_IMAGE");
+        // Skip if no images, or only the site logo (not a real catch photo)
+        const LOGO_PATTERNS = [
+          /logo/i,
+          /site[-_]?logo/i,
+          /header[-_]?img/i,
+          /fishreports[-_.]com\/images\/(?:logo|header|banner)/i,
+          /\/default[-_]?img/i,
+          /placeholder/i,
+        ];
+        const catchPhotos = (scraped.images || []).filter(
+          (src) => !LOGO_PATTERNS.some((re) => re.test(src))
+        );
+        if (catchPhotos.length === 0) {
+          recordSkip(summary, url, "NO_CATCH_PHOTO");
           processed.add(url); processed.add(canonicalReportKey(url));
           continue;
         }
+        scraped.images = catchPhotos;
         if (isBoatWork(scraped)) {
           recordSkip(summary, url, "BOAT_WORK");
           processed.add(url); processed.add(canonicalReportKey(url));
@@ -354,7 +635,8 @@ async function loadCanonicalLocationMap() {
         const tripDateTime = extractDate(scraped);
         const fish = extractFishCounts(scraped.narrative);
         const locationId = canonical.locationByLanding.get(String(landingId || "")) || "";
-        const tripTypeId = "";
+        const tripTypeId = inferTripTypeId(scraped.title, scraped.narrative, scraped.h3);
+        const anglersCount = extractAnglers(scraped.title, scraped.narrative);
         const userId = String(referenceCache.user?.id || process.env.REPORTER_USER_ID || "");
 
         if (!tripDateTime) {
@@ -385,7 +667,7 @@ async function loadCanonicalLocationMap() {
         if (!userId) throw new Error("CONFIG_ERROR: Missing user_id");
 
         const dedupResult = await tripExists(
-          process.env.API_BASE_URL,
+          REPORT_API_BASE_URL,
           referenceCache.token,
           process.env.ADMIN_API_KEY,
           { boatId: boat.boatId, landingId, tripDate: tripDateTime, locationId }
@@ -427,7 +709,7 @@ async function loadCanonicalLocationMap() {
           report_text: reportText,
           fish,
           images: scraped.images,
-          anglers: null
+          anglers: anglersCount
         };
 
         summary.counters.attempted += 1;
@@ -463,7 +745,7 @@ async function loadCanonicalLocationMap() {
 
         const res = await withStageRetry("create_trip", async () => {
           try {
-            return await axios.post(`${process.env.API_BASE_URL}/api/v2/createTrip`, form, {
+            return await axios.post(`${REPORT_API_BASE_URL}/api/v2/createTrip`, form, {
               timeout: CREATE_TRIP_TIMEOUT_MS,
               headers: {
                 ...form.getHeaders(),
