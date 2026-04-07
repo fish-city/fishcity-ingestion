@@ -8,23 +8,28 @@ const config = {
   url: "https://elpatron.fishingreservations.net/sales/",
   bookingBase: "https://elpatron.fishingreservations.net/sales/user.php?trip_id=",
   partner: "elpatron",
-  boatId: Number(process.env.ELPATRON_BOAT_ID || 0),
+  boatId: Number(process.env.ELPATRON_BOAT_ID || 178),
   defaultPollMinutes: 360
 };
 
 (async () => {
-  const previous = await loadPreviousState(config.partner);
-  const isFirstRun = previous.length === 0;
+  try {
+    const previous = await loadPreviousState(config.partner);
+    const isFirstRun = previous.length === 0;
 
-  const { current, changes, activity } = await scrapePartnerSchedule(config);
+    const { current, changes, activity } = await scrapePartnerSchedule(config);
 
-  const notifyStats = await sendPartnerNotifications(changes, {
-    partner: config.partner,
-    boatId: config.boatId,
-    currentTrips: current,
-    isFirstRun
-  });
+    const notifyStats = await sendPartnerNotifications(changes, {
+      partner: config.partner,
+      boatId: config.boatId,
+      currentTrips: current,
+      isFirstRun
+    });
 
-  console.log(`[elpatron] Trips: ${current.length} | Changes: ${changes.length}`);
-  console.log(`[elpatron] Notifications:`, notifyStats);
+    console.log(`[elpatron] Trips: ${current.length} | Changes: ${changes.length}`);
+    console.log(`[elpatron] Notifications:`, notifyStats);
+  } catch (err) {
+    console.error(`[elpatron] Fatal: ${err.message}`);
+    process.exitCode = 1;
+  }
 })();
