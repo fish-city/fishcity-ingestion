@@ -47,12 +47,12 @@ module.exports = {
       retain: 5
     },
 
-    // ── El Patron Partner Notifications (hourly, 7am–9pm, offset :15) ─────
+    // ── El Patron Partner Notifications (hourly, 7am–9pm) ─────────────────
     {
       name: "fc-elpatron-notify",
       script: "pipelines/partner_schedules/elpatron_ingest.js",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
-      cron_restart: "15 7-21 * * *",
+      cron_restart: "0 7-21 * * *",
       autorestart: false,
       watch: false,
       max_memory_restart: "256M",
@@ -67,12 +67,12 @@ module.exports = {
       retain: 5
     },
 
-    // ── Black Pearl / Virg's Landing Notifications (hourly, 7am–9pm, offset :30) ──
+    // ── Black Pearl / Virg's Landing Notifications (hourly, 7am–9pm) ──────
     {
       name: "fc-blackpearl-notify",
       script: "pipelines/partner_schedules/blackpearl_ingest.js",
       cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
-      cron_restart: "30 7-21 * * *",
+      cron_restart: "0 7-21 * * *",
       autorestart: false,
       watch: false,
       max_memory_restart: "256M",
@@ -85,6 +85,26 @@ module.exports = {
       merge_logs: true,
       max_size: "10M",
       retain: 5
+    },
+
+    // ── Dashboard (always-on, serves tracking UI + send log) ─────────────
+    {
+      name: "fc-dashboard",
+      script: "dashboard/serve.js",
+      cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "128M",
+      env: {
+        NODE_ENV: "development",
+        DASHBOARD_PORT: "3847"
+      },
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      error_file: "logs/dashboard-error.log",
+      out_file: "logs/dashboard-out.log",
+      merge_logs: true,
+      max_size: "10M",
+      retain: 3
     }
   ]
 };

@@ -21,6 +21,7 @@ const SEND_LOG_PATH = path.join(STATE_DIR, "notification_send_log.json");
 const DEFERRED_PATH = path.join(STATE_DIR, "deferred_notifications.json");
 
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
+const CLICK_TRACKING_URL = process.env.CLICK_TRACKING_URL || ""; // Supabase Edge Function base URL
 
 // ── Deep link builder ────────────────────────────────────────────
 
@@ -41,6 +42,36 @@ function buildDeepLink(change, partner) {
   return `${bookingUrl}${sep}${utmParams}`;
 }
 
+// ── Click tracking ──────────────────────────────────────────────
+// Register a deep link with the Supabase Edge Function redirect service.
+// Returns a tracked redirect URL, or the original deep link if tracking unavailable.
+
+async function registerClickTracking({ deepLink, partner, boatId, tripId, stage, sentAt }) {
+  if (!CLICK_TRACKING_URL || !deepLink) return { trackedUrl: deepLink, clickId: null };
+
+  const clickId = `${partner}_${tripId || "none"}_${stage}_${Date.now().toString(36)}`;
+  try {
+    const res = await axios.post(`${CLICK_TRACKING_URL}/register`, {
+      click_id: clickId,
+      partner,
+      boat_id: boatId,
+      trip_id: tripId,
+      stage,
+      booking_url: deepLink,
+      notification_sent_at: sentAt
+    }, { timeout: 5000 });
+
+    const redirectUrl = res.data?.redirect_url;
+    if (redirectUrl) {
+      console.log(`[tracking] Registered click ${clickId} → ${redirectUrl}`);
+      return { trackedUrl: redirectUrl, clickId };
+    }
+  } catch (err) {
+    console.warn(`[tracking] Registration failed (${err.message}) — using direct link`);
+  }
+  return { trackedUrl: deepLink, clickId: null };
+}
+
 // ── State management ─────────────────────────────────────────────
 
 async function loadSendLog() {
@@ -55,7 +86,10 @@ async function saveSendLog(log) {
   await fs.mkdir(STATE_DIR, { recursive: true });
   const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000; // Keep 14 days
   log.sends = (log.sends || []).filter((s) => new Date(s.sent_at).getTime() > cutoff);
-  await fs.writeFile(SEND_LOG_PATH, JSON.stringify(log, null, 2));
+  // Atomic write: tmp file → rename prevents partial-write corruption
+  const tmp = `${SEND_LOG_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(log, null, 2));
+  await fs.rename(tmp, SEND_LOG_PATH);
 }
 
 async function loadDeferred() {
@@ -71,7 +105,9 @@ async function saveDeferred(items) {
   // Drop deferred items older than 24 hours (stale)
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const fresh = (items || []).filter((d) => new Date(d.deferred_at).getTime() > cutoff);
-  await fs.writeFile(DEFERRED_PATH, JSON.stringify(fresh, null, 2));
+  const tmp = `${DEFERRED_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(fresh, null, 2));
+  await fs.rename(tmp, DEFERRED_PATH);
 }
 
 // ── Auth ─────────────────────────────────────────────────────────
@@ -144,7 +180,7 @@ async function sendPush(token, { title, body, deepLink, boatId, partner, stage, 
     Authorization: `Bearer ${token}`
   };
 
-  console.log(`[notifier] Push payload: destination=${payload.destination}, destination_params=${JSON.stringify(payload.destination_params)}`);
+  console.log(`[notifier] Push payload: recipients=${JSON.stringify(payload.recipients)}, destination=${payload.destination}`);
 
   try {
     const res = await axios.post(`${API_BASE_URL}/api/v1/push/send`, payload, {
@@ -152,6 +188,10 @@ async function sendPush(token, { title, body, deepLink, boatId, partner, stage, 
     });
 
     const data = res.data?.data || {};
+
+    // Log full push response for audience verification
+    console.log(`[notifier] Push response: attempted=${data.attemptedCount || 0}, delivered=${data.successCount || 0}, failed=${data.failureCount || 0}`);
+    if (data.audience_size != null) console.log(`[notifier] Backend audience_size: ${data.audience_size}`);
 
     // Log fallback detection — critical for deep link debugging
     if (data.fallback_used) {
@@ -347,10 +387,24 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
     return stats;
   }
 
-  const deepLink = buildDeepLink(topChange, partner);
+  const rawDeepLink = buildDeepLink(topChange, partner);
+  let deepLink = rawDeepLink;
+  let clickId = null;
 
-  if (!deepLink) {
+  if (!rawDeepLink) {
     console.warn(`[notifier] ⚠ No deep link — booking_url missing on trip ${topChange.trip_id} (will send to home_feed)`);
+  } else {
+    // Register click tracking — wraps deep link in a redirect URL
+    const tracking = await registerClickTracking({
+      deepLink: rawDeepLink,
+      partner,
+      boatId,
+      tripId: topChange.trip_id,
+      stage: topChange.stage,
+      sentAt: new Date().toISOString()
+    });
+    deepLink = tracking.trackedUrl;
+    clickId = tracking.clickId;
   }
 
   // Append count of additional changes
@@ -416,7 +470,9 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
         stage: topChange.stage,
         change_type: topChange.type,
         title: message.title,
-        deep_link: deepLink,
+        deep_link: rawDeepLink,
+        tracked_link: clickId ? deepLink : null,
+        click_id: clickId,
         fallback_used: result.fallback_used || false,
         fallback_reason: result.fallback_reason || null,
         sent_at: new Date().toISOString(),
