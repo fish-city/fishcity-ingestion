@@ -2,4 +2,6 @@ node_modules/
 .env
 runs/
 state/
+logs/
+DEPLOY_V*.sh
 tmp_*.mjs

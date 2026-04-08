@@ -30,7 +30,15 @@ export async function buildCreateTripPayload(normalizedReport, options = {}) {
   form.append("conditions", String(options.conditions ?? normalizedReport.conditions ?? "3"));
   form.append("share_catch", String(options.shareCatch ?? normalizedReport.share_catch ?? "1"));
 
-  form.append("trip_name", String(options.tripName ?? normalizedReport.trip_name ?? normalizedReport.title ?? "Untitled Trip"));
+  // Build trip_name — only include boat name if we have a verified boatNameId
+  let tripName = String(options.tripName ?? normalizedReport.trip_name ?? normalizedReport.title ?? "");
+  const hasVerifiedBoat = Boolean(options.boatNameId);
+  const boatForTitle = hasVerifiedBoat ? String(normalizedReport.boat_name || "").trim() : "";
+  if (boatForTitle && !tripName.toLowerCase().includes(boatForTitle.toLowerCase())) {
+    tripName = tripName ? `${boatForTitle} — ${tripName}` : boatForTitle;
+  }
+  if (!tripName) tripName = "Fishing Report";
+  form.append("trip_name", tripName);
   form.append("trip_type_id", String(options.tripTypeId ?? normalizedReport.trip_type_id ?? "0"));
 
   const boatNameId = options.boatNameId ?? normalizedReport.boat_name_id ?? normalizedReport.boat_id ?? "";

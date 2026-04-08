@@ -3,205 +3,582 @@ import * as cheerio from "cheerio";
 import fs from "fs/promises";
 import path from "path";
 import dotenv from "dotenv";
-import { fileURLToPath } from "url";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { normalizeReportWithAI } from "../../core/aiNormalizer.js";
 import { referenceCache } from "../../core/referenceCache.js";
 import { buildCreateTripPayload } from "./payload.js";
-import { getRecoveryConfig, isCooldownActive, markPushSuccess, recordPushFailure } from "./recovery.js";
+import { tripExists } from "../../core/dedupCheck.js";
 
 dotenv.config();
 
+const execFileAsync = promisify(execFile);
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
+// Allow fish reports to target a different API than the notification pipeline
+// Set REPORT_API_BASE_URL in .env to override (e.g. dev server while notifs go to prod)
+const REPORT_API_BASE_URL = process.env.REPORT_API_BASE_URL || process.env.API_BASE_URL;
 const ACCEPTED_PATH = path.resolve("runs", "dev_output", "accepted.json");
+const RUNS_DIR = path.resolve("runs", "dev_output");
+const REPORT_PUSH_LATEST_PATH = path.join(RUNS_DIR, "report_push_latest.json");
 const STATE_DIR = path.resolve("state");
 const PROCESSED_PATH = path.join(STATE_DIR, "processed_reports.json");
-const RECOVERY_STATE_PATH = path.join(STATE_DIR, "push_recovery_state.json");
-const DEAD_LETTER_PATH = path.join(STATE_DIR, "dead_letter_reports.json");
 const CANONICAL_MAP_PATH = path.resolve("reference", "canonical_location_landing_map.json");
+const REPORT_FETCH_TIMEOUT_MS = 10000;
+const CREATE_TRIP_TIMEOUT_MS = 20000;
+const RETRY_DELAY_MS = 1200;
+const MAX_STAGE_RETRIES = 1;
 
-const BOAT_LANDING_HINTS = {
-  "red rooster iii": "h m landing",
-  "independence": "point loma sportfishing",
-  "new seaforth": "seaforth",
-  "seaforth": "seaforth"
-};
-
-function logEvent(event, data = {}) {
-  console.log(JSON.stringify({ level: "info", event, ...data }));
-}
-
-function logError(event, data = {}) {
-  console.error(JSON.stringify({ level: "error", event, ...data }));
-}
-
-function n(s) {
-  return String(s || "")
-    .toLowerCase()
-    .replace(/&amp;/g, "&")
-    .replace(/&/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+// ── Helpers ─────────────────────────────────────────────────────
+function norm(s) {
+  return String(s || "").toLowerCase().replace(/&amp;/g, "&").replace(/&/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function isBoatWork(scraped) {
-  const txt = n(`${scraped.title} ${scraped.narrative}`);
+  const txt = norm(`${scraped.title} ${scraped.narrative}`);
   return /(boat work|yard|yard period|maintenance|haul out|shipyard|dry dock)/.test(txt);
 }
 
-function countsOnlyNoImage(scraped, normalized) {
-  const hasImages = (scraped.images || []).length > 0;
-  if (hasImages) return false;
-  const fishCount = Array.isArray(normalized.fish) ? normalized.fish.length : 0;
-  const narrativeLen = String(scraped.narrative || "").trim().length;
-  return fishCount >= 2 && narrativeLen < 180;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const BOAT_ALIASES = {
-  "rr3": "Red Rooster III",
-  "red rooster": "Red Rooster III",
-  "indy": "Independence",
-  "independence sportfishing": "Independence",
-  "new seaforth": "New Seaforth"
-};
+function bump(map, key) {
+  map[key] = (map[key] || 0) + 1;
+}
 
-function normalizeBoatAlias(name = "") {
-  const key = n(name);
-  if (!key) return "";
-  for (const [alias, canonical] of Object.entries(BOAT_ALIASES)) {
-    if (key === alias || key.includes(alias)) return canonical;
+function classifyError(err, stage) {
+  const code = String(err?.code || "").toUpperCase();
+  const status = err?.response?.status;
+  const responseMessage = err?.response?.data?.message || err?.response?.data?.error;
+  const baseMessage = String(responseMessage || err?.message || "Unknown error").trim();
+  const aborted = code === "ECONNABORTED" || code === "ETIMEDOUT" || /aborted|timeout/i.test(baseMessage);
+
+  if (status) return `${stage.toUpperCase()}_HTTP_${status}${responseMessage ? `: ${responseMessage}` : ""}`;
+  if (aborted) return `${stage.toUpperCase()}_TIMEOUT`;
+  if (code === "ENOTFOUND" || code === "ECONNRESET" || code === "EAI_AGAIN") return `${stage.toUpperCase()}_${code}`;
+  return `${stage.toUpperCase()}_ERROR: ${baseMessage}`;
+}
+
+async function withStageRetry(stage, fn) {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err) {
+      const classified = classifyError(err, stage);
+      const retryable = /_TIMEOUT$|_ECONNRESET$|_EAI_AGAIN$/.test(classified);
+      if (!retryable || attempt >= MAX_STAGE_RETRIES) {
+        err.closeoutReason = classified;
+        throw err;
+      }
+      attempt += 1;
+      console.warn(`[retry] ${stage} attempt ${attempt}/${MAX_STAGE_RETRIES} after ${classified}`);
+      await sleep(RETRY_DELAY_MS);
+    }
   }
-  return name.trim();
 }
 
-function parseBoatCandidates($, titleText = "", narrativeText = "") {
-  const body = $("body").text().replace(/\s+/g, " ");
-  const candidates = [];
+async function writeLatestSummary(summary) {
+  await fs.mkdir(RUNS_DIR, { recursive: true });
+  await fs.writeFile(REPORT_PUSH_LATEST_PATH, JSON.stringify(summary, null, 2));
+}
 
+function createRunSummary(acceptedCount, processedCount) {
+  return {
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    durationMs: null,
+    dryRun: DRY_RUN,
+    acceptedCount,
+    linksConsidered: 0,
+    processedCount,
+    counters: {
+      attempted: 0,
+      succeeded: 0,
+      skippedTerminal: 0,
+      failed: 0,
+      retriedTimeouts: 0
+    },
+    outcomes: {
+      successReasons: {},
+      skipReasons: {},
+      failureReasons: {}
+    },
+    samples: {
+      successes: [],
+      skips: [],
+      failures: []
+    }
+  };
+}
+
+function pushSample(bucket, entry, limit = 5) {
+  if (bucket.length < limit) bucket.push(entry);
+}
+
+function recordSkip(summary, url, reason) {
+  summary.counters.skippedTerminal += 1;
+  bump(summary.outcomes.skipReasons, reason);
+  pushSample(summary.samples.skips, { url, reason });
+  console.log(`Skipped ${url}: ${reason}`);
+}
+
+function recordFailure(summary, url, reason) {
+  summary.counters.failed += 1;
+  bump(summary.outcomes.failureReasons, reason);
+  pushSample(summary.samples.failures, { url, reason });
+  console.error(`✗ ${url}: ${reason}`);
+}
+
+// ── Deduplicate cross-domain URLs ───────────────────────────────
+// sandiegofishreports.com and socalfishreports.com host the same reports.
+// Normalize to a canonical key so we only process each report once.
+function canonicalReportKey(url) {
+  return String(url || "")
+    .replace("www.socalfishreports.com", "www.sandiegofishreports.com")
+    .replace("www.flyfishingreports.com", "www.norcalfishreports.com");
+}
+
+// ── Trip type inference ──────────────────────────────────────────
+// Maps text patterns to Fish City trip_type_ids.
+// Order matters — more specific patterns checked before generic ones.
+// Falls back to id=112 ("Various") if no match found.
+
+const TRIP_TYPE_PATTERNS = [
+  // Long-range first (most specific)
+  { re: /\b7[\s-]*day\b/i, id: "23" },
+  { re: /\b6[\s-]*day\b/i, id: "22" },
+  { re: /\b4\.5[\s-]*day\b/i, id: "27" },
+  { re: /\b4[\s-]*day\b/i, id: "13" },
+  { re: /\b3\.5[\s-]*day\b/i, id: "9" },
+  { re: /\b3\.25[\s-]*day\b/i, id: "21" },
+  { re: /\b3[\s-]*day\b/i, id: "8" },
+  { re: /\b2\.75[\s-]*day\b/i, id: "26" },
+  { re: /\b2\.5[\s-]*day\b/i, id: "7" },
+  { re: /\b2[\s-]*day\b/i, id: "6" },
+  { re: /\bextended\s+1\.5[\s-]*day\b/i, id: "19" },
+  { re: /\b1\.75[\s-]*day\b/i, id: "16" },
+  { re: /\b1\.5[\s-]*day\b/i, id: "1" },
+  { re: /\breverse\s+overnight\b/i, id: "66" },
+  { re: /\bovernight\b/i, id: "15" },
+  // Full day variants
+  { re: /\bfull[\s-]*day\s+offshore\b/i, id: "110" },
+  { re: /\bfull[\s-]*day\s+coronado\b/i, id: "46" },
+  { re: /\bfull[\s-]*day\b/i, id: "14" },
+  // 3/4 day variants
+  { re: /\b3\/4[\s-]*day\s+islands\b/i, id: "10" },
+  { re: /\b3\/4[\s-]*day\s+local\b/i, id: "18" },
+  { re: /\b3\/4[\s-]*day\s+offshore\b/i, id: "11" },
+  { re: /\b3\/4[\s-]*day\b/i, id: "12" },
+  // Half day variants
+  { re: /\bextended\s+1\/2[\s-]*day\b/i, id: "28" },
+  { re: /\b(?:half|1\/2)[\s-]*day\s+twilight\b/i, id: "4" },
+  { re: /\b(?:half|1\/2)[\s-]*day\s+pm\b/i, id: "3" },
+  { re: /\b(?:half|1\/2)[\s-]*day\s+am\b/i, id: "2" },
+  { re: /\b(?:half|1\/2)[\s-]*day\b/i, id: "5" },
+  // Special
+  { re: /\blobster\b/i, id: "24" },
+];
+
+function inferTripTypeId(title, narrative, h3 = "") {
+  const text = `${h3} ${title} ${narrative}`.toLowerCase();
+  for (const { re, id } of TRIP_TYPE_PATTERNS) {
+    if (re.test(text)) return id;
+  }
+  return "112"; // "Various" — catch-all
+}
+
+// ── Anglers count extraction ─────────────────────────────────────
+// Parse common phrasings: "15 anglers", "party of 12", "12 passengers", etc.
+
+function extractAnglers(title, narrative) {
+  const text = `${title} ${narrative}`;
   const patterns = [
-    /From\s+([A-Za-z0-9 '&.-]+?)\s+Sportfishing/i,
-    /aboard\s+the\s+([A-Za-z0-9 '&.-]+?)(?:\s+out\s+of|\.|,|\s{2,}|$)/i,
-    /vessel\s*[:\-]\s*([A-Za-z0-9 '&.-]+?)(?:\.|,|\s{2,}|$)/i,
-    /boat\s*[:\-]\s*([A-Za-z0-9 '&.-]+?)(?:\.|,|\s{2,}|$)/i
+    /(\d+)\s+anglers?\b/i,
+    /\bparty\s+of\s+(\d+)\b/i,
+    /(\d+)\s+passengers?\b/i,
+    /(\d+)\s+fisherm[ae]n\b/i,
+    /\b(\d+)\s+(?:paid\s+)?rods?\b/i,
   ];
-
-  for (const p of patterns) {
-    const m1 = String(titleText || "").match(p);
-    if (m1?.[1]) candidates.push(m1[1].trim());
-    const m2 = String(narrativeText || "").match(p);
-    if (m2?.[1]) candidates.push(m2[1].trim());
-    const m3 = body.match(p);
-    if (m3?.[1]) candidates.push(m3[1].trim());
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0 && n <= 200) return n; // sanity cap
+    }
   }
-
-  const known = ["Red Rooster III", "Independence", "New Seaforth", "Seaforth"];
-  const t = String(titleText || "").toLowerCase();
-  for (const k of known) if (t.includes(k.toLowerCase())) candidates.push(k);
-
-  return [...new Set(candidates.map(normalizeBoatAlias).filter(Boolean))];
+  return null;
 }
 
-function resolveBoatNameId(normalized, scraped) {
-  const candidates = [
-    normalized.boat_name,
-    normalized.boat,
-    scraped.boat_name,
-    ...(scraped.boat_candidates || [])
-  ].map((x) => normalizeBoatAlias(String(x || "").trim())).filter(Boolean);
+// ── DETERMINISTIC boat resolution ───────────────────────────────
+// No AI, no fuzzy matching. Exact name match against backend only.
+// We build word-boundary regexes for each boat name so "Good" won't
+// match "good fishing" but will match "the Good out of Seaforth".
 
-  for (const c of candidates) {
-    const id = referenceCache.lookupBoatId(c) || referenceCache.lookupBoatIdFuzzy(c);
-    if (id) return { boatName: c, boatId: id };
+function buildBoatMatchers() {
+  const matchers = [];
+  for (const name of referenceCache.getAllBoatNames()) {
+    const id = referenceCache.lookupBoatId(name);
+    if (!id) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\b${escaped}\\b`, "i");
+    matchers.push({ name, id, re, len: name.length });
   }
-
-  return { boatName: candidates[0] || "", boatId: "" };
+  matchers.sort((a, b) => b.len - a.len);
+  return matchers;
 }
 
-function hasTrustedLandingId(normalized, options = {}) {
-  const id = options.landingId ?? normalized.landing_id ?? normalized.landingId;
-  const num = Number(id);
-  return Number.isFinite(num) && num > 0;
-}
+const BOAT_ALIASES = new Map([
+  // ── Independence / Point Loma Sport ──
+  ["indy", "Independence"],
+  ["independence sportfishing", "Independence"],
 
-function resolveLandingId(normalized, scraped, boatNameId = "") {
-  if (hasTrustedLandingId(normalized)) return String(normalized.landing_id || normalized.landingId);
+  // ── New Seaforth / Seaforth ──
+  ["new seaforth", "New Seaforth"],
+  ["seaforth sportfishing", "New Seaforth"],
 
-  if (boatNameId) {
-    const fromBoat = referenceCache.lookupLandingIdByBoatId(boatNameId);
-    if (fromBoat) return fromBoat;
-  }
+  // ── Premier ──
+  ["the premier", "Premier"],
 
-  const boat = n(normalized.boat_name || normalized.boat || scraped.boat_name || scraped.title);
-  for (const [k, landingName] of Object.entries(BOAT_LANDING_HINTS)) {
-    if (boat.includes(k)) {
-      const id = referenceCache.lookupLandingId(landingName);
-      if (id) return id;
+  // ── Pacific Queen ──
+  ["pac queen", "Pacific Queen"],
+  ["p queen", "Pacific Queen"],
+
+  // ── Pacific Voyager ──
+  ["pac voyager", "Pacific Voyager"],
+  ["the voyager", "Voyager"],
+
+  // ── Daily Double ──
+  ["daily dbl", "Daily Double"],
+
+  // ── Mission Belle ──
+  ["m belle", "Mission Belle"],
+  ["the belle", "Mission Belle"],
+
+  // ── New Lo-An ──
+  ["lo-an", "New Lo-An"],
+  ["loa n", "New Lo-An"],
+  ["lo an", "New Lo-An"],
+
+  // ── Polaris Supreme ──
+  ["polaris", "Polaris Supreme"],
+  ["the polaris", "Polaris Supreme"],
+
+  // ── San Diego ──
+  ["the san diego", "San Diego"],
+
+  // ── Sea Watch ──
+  ["sea watch", "Sea Watch"],
+
+  // ── Tribute ──
+  ["the tribute", "Tribute"],
+
+  // ── Tomahawk ──
+  ["the tomahawk", "Tomahawk"],
+
+  // ── Islander ──
+  ["the islander", "Islander"],
+
+  // ── Liberty ──
+  ["the liberty", "Liberty"],
+
+  // ── Fortune ──
+  ["the fortune", "Fortune"],
+
+  // ── Dolphin ──
+  ["the dolphin", "Dolphin"],
+
+  // ── Condor ──
+  ["the condor", "Condor"],
+
+  // ── Aztec ──
+  ["the aztec", "Aztec"],
+
+  // ── Apollo ──
+  ["the apollo", "Apollo"],
+
+  // ── Cortez ──
+  ["the cortez", "Cortez"],
+
+  // ── Highliner ──
+  ["the highliner", "Highliner"],
+
+  // ── Pacifica ──
+  ["the pacifica", "Pacifica"],
+
+  // ── Pegasus ──
+  ["the pegasus", "Pegasus"],
+
+  // ── Point Loma ──
+  ["the point loma", "Point Loma"],
+
+  // ── T-Bird ──
+  ["tbird", "T-Bird"],
+  ["t bird", "T-Bird"],
+  ["thunderbird", "T-Bird"],
+
+  // ── Malihini ──
+  ["the malihini", "Malihini"],
+
+  // ── Legend ──
+  ["the legend", "Legend"],
+
+  // ── Grande ──
+  ["the grande", "Grande"],
+
+  // ── Old Glory ──
+  ["the old glory", "Old Glory"],
+
+  // ── Daiwa Pacific ──
+  ["daiwa", "Daiwa Pacific"],
+
+  // ── Producer ──
+  ["the producer", "Producer"],
+
+  // ── Ranger 85 ──
+  ["ranger", "Ranger 85"],
+
+  // ── Top Gun 80 ──
+  ["top gun", "Top Gun 80"],
+
+  // ── Sea Adventure 80 ──
+  ["sea adventure", "Sea Adventure 80"],
+
+  // ── Ocean Odyssey ──
+  ["ocean odyssey", "Ocean Odyssey"],
+
+  // ── Nautilus ──
+  ["the nautilus", "Nautilus"],
+
+  // ── Excalibur ──
+  ["the excalibur", "Excalibur"],
+
+  // ── Horizon ──
+  ["the horizon", "Horizon"],
+
+  // ── Spirit of Adventure ──
+  ["spirit", "Spirit of Adventure"],
+  ["soa", "Spirit of Adventure"],
+
+  // ── Vendetta 2 ──
+  ["vendetta", "Vendetta 2"],
+
+  // ── Relentless ──
+  ["the relentless", "Relentless"],
+
+  // ── Reel Champion ──
+  ["reel champ", "Reel Champion"],
+
+  // ── Little G ──
+  ["little g", "Little G"],
+
+  // ── Southern Cal ──
+  ["southern cal", "Southern Cal"],
+  ["so cal", "Southern Cal"],
+  ["socal boat", "Southern Cal"],
+
+  // ── Chubasco II ──
+  ["chubasco", "Chubasco II"],
+
+  // ── Blue Horizon ──
+  ["blue horizon", "Blue Horizon"],
+
+  // ── Sea Star ──
+  ["sea star", "Sea Star"],
+
+  // ── Pronto ──
+  ["the pronto", "Pronto"],
+
+  // ── Electra ──
+  ["the electra", "Electra"],
+
+  // ── Fisherman III ──
+  ["fisherman 3", "Fisherman III"],
+  ["fisherman three", "Fisherman III"],
+
+  // ── El Capitan ──
+  ["el cap", "El Capitan"],
+
+  // ── El Gato Dos ──
+  ["el gato", "El Gato Dos"],
+
+  // ── Pacific Dawn ──
+  ["pac dawn", "Pacific Dawn"],
+
+  // ── Intrepid ──
+  ["the intrepid", "Intrepid"],
+
+  // ── Shogun ──
+  ["the shogun", "Shogun"],
+
+  // ── Searcher ──
+  ["the searcher", "Searcher"],
+
+  // ── Tradition ──
+  ["the tradition", "Tradition"],
+
+  // ── Lucky B ──
+  ["lucky b", "Lucky B Sportfishing"],
+
+  // ── Invader ──
+  ["the invader", "Invader"],
+
+  // ── Outer Limits ──
+  ["outer limits", "Outer Limits"],
+
+  // ── Ironclad ──
+  ["the ironclad", "Ironclad"],
+]);
+
+function resolveBoatFromText(title, narrative, boatMatchers) {
+  const titleLower = (title || "").toLowerCase();
+  for (const [alias, canonical] of BOAT_ALIASES) {
+    if (titleLower.includes(alias)) {
+      const id = referenceCache.lookupBoatId(canonical);
+      if (id) return { boatName: canonical, boatId: id };
     }
   }
 
-  return referenceCache.lookupLandingId(normalized.landing_name || normalized.landing) || "";
+  for (const m of boatMatchers) {
+    if (m.re.test(title || "")) {
+      return { boatName: m.name, boatId: m.id };
+    }
+  }
+
+  return { boatName: "", boatId: "" };
 }
 
-function guessDateTime(scraped, normalized) {
-  const existing = String(normalized.trip_date_time || "").trim();
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(existing)) return existing;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(existing)) return `${existing} 08:00:00`;
+function resolveLanding(boatId, title, narrative) {
+  if (boatId) {
+    const fromBoat = referenceCache.lookupLandingIdByBoatId(boatId);
+    if (fromBoat) return fromBoat;
+  }
 
-  const m1 = String(scraped.h3 || "").match(/Fish Report for\s+(\d{1,2})-(\d{1,2})-(\d{4})/i);
-  if (m1) return `${m1[3]}-${String(m1[1]).padStart(2, "0")}-${String(m1[2]).padStart(2, "0")} 08:00:00`;
-
-  const m2 = String(scraped.title || "").match(/(\d{1,2})-(\d{1,2})-(\d{4})/);
-  if (m2) return `${m2[3]}-${String(m2[1]).padStart(2, "0")}-${String(m2[2]).padStart(2, "0")} 08:00:00`;
-
-  const m3 = String(scraped.raw_text || "").match(/([A-Za-z]+),\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})/);
-  if (m3) {
-    const mmMap = { january: "01", february: "02", march: "03", april: "04", may: "05", june: "06", july: "07", august: "08", september: "09", october: "10", november: "11", december: "12" };
-    const mm = mmMap[String(m3[2]).toLowerCase()];
-    if (mm) return `${m3[4]}-${mm}-${String(m3[3]).padStart(2, "0")} 08:00:00`;
+  const text = norm(title || narrative || "");
+  const allLandings = referenceCache.idx.landings;
+  for (const [normalizedName, landingId] of allLandings) {
+    if (normalizedName && text.includes(normalizedName)) return landingId;
   }
 
   return "";
 }
 
-async function readJsonOrDefault(filePath, fallback) {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
+function extractFishCounts(narrative) {
+  const text = String(narrative || "");
+  const results = [];
+  const seen = new Set();
+
+  for (const [normalizedName, fishId] of referenceCache.idx.fish) {
+    if (!normalizedName || !fishId) continue;
+    const escaped = normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const patterns = [
+      new RegExp(`(\\d+)\\s+${escaped}`, "gi"),
+      new RegExp(`${escaped}\\s*[-–:]?\\s*(\\d+)`, "gi")
+    ];
+    for (const re of patterns) {
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const count = parseInt(m[1], 10);
+        if (count > 0 && !seen.has(fishId)) {
+          seen.add(fishId);
+          results.push({ fish_id: fishId, species: normalizedName, count });
+        }
+      }
+    }
   }
+  return results;
 }
 
-async function writeJson(filePath, payload) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(payload, null, 2));
+function extractDate(scraped) {
+  const sources = [scraped.h3 || "", scraped.title || "", scraped.raw_text || ""];
+
+  for (const s of sources) {
+    const m = s.match(/Fish Report for\s+(\d{1,2})-(\d{1,2})-(\d{4})/i);
+    if (m) return `${m[3]}-${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")} 05:00:00`;
+  }
+
+  for (const s of sources) {
+    const m = s.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (m) return `${m[3]}-${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")} 05:00:00`;
+  }
+
+  const mmMap = { january:"01", february:"02", march:"03", april:"04", may:"05", june:"06",
+    july:"07", august:"08", september:"09", october:"10", november:"11", december:"12" };
+  for (const s of sources) {
+    const m = s.match(/([A-Za-z]+),\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})/);
+    if (m) {
+      const mm = mmMap[m[2].toLowerCase()];
+      if (mm) return `${m[4]}-${mm}-${String(m[3]).padStart(2, "0")} 05:00:00`;
+    }
+  }
+
+  return "";
+}
+
+async function fetchReport(url, summary) {
+  return withStageRetry("fetch_report", async () => {
+    try {
+      const res = await axios.get(url, {
+        timeout: REPORT_FETCH_TIMEOUT_MS,
+        headers: { "User-Agent": "FishCityScraper/1.0" }
+      });
+      const $ = cheerio.load(res.data);
+      const title = $(".report_title_data, h1").first().text().replace(/\s+/g, " ").trim();
+      const narrative = $(".report_descript_data, .content").first().text().replace(/\s+/g, " ").trim();
+      const h3 = $("h3").first().text().replace(/\s+/g, " ").trim();
+      const raw_text = $("body").text().replace(/\s+/g, " ").trim();
+
+      const images = [];
+      $("img").each((_, el) => {
+        const src = $(el).attr("src");
+        if (!src || !src.includes("media.fishreports.com")) return;
+        images.push(src.startsWith("http") ? src : `https://${src.replace(/^\/\//, "")}`);
+      });
+
+      return { url, title, narrative, h3, raw_text, images };
+    } catch (err) {
+      if (/_TIMEOUT$/.test(classifyError(err, "fetch_report"))) summary.counters.retriedTimeouts += 1;
+      throw err;
+    }
+  });
 }
 
 async function loadProcessedSet() {
-  const arr = await readJsonOrDefault(PROCESSED_PATH, []);
-  return new Set(Array.isArray(arr) ? arr : []);
+  try { return new Set(JSON.parse(await fs.readFile(PROCESSED_PATH, "utf8"))); }
+  catch { return new Set(); }
 }
+
+// Cap processed set to avoid unbounded growth (~140 links/run × 3 runs/day × 90 days)
+const MAX_PROCESSED_URLS = 40000;
 
 async function saveProcessedSet(set) {
-  await writeJson(PROCESSED_PATH, [...set]);
+  await fs.mkdir(STATE_DIR, { recursive: true });
+  let urls = [...set];
+  // Trim oldest entries (front of array) when over cap
+  if (urls.length > MAX_PROCESSED_URLS) {
+    const trimmed = urls.length - MAX_PROCESSED_URLS;
+    urls = urls.slice(trimmed);
+    console.log(`[processed] Pruned ${trimmed} old URLs (capped at ${MAX_PROCESSED_URLS})`);
+  }
+  const tmp = `${PROCESSED_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(urls, null, 2));
+  await fs.rename(tmp, PROCESSED_PATH);
 }
 
-async function loadRecoveryState() {
-  return readJsonOrDefault(RECOVERY_STATE_PATH, {});
-}
-
-async function saveRecoveryState(state) {
-  await writeJson(RECOVERY_STATE_PATH, state || {});
-}
-
-async function appendDeadLetter(entry) {
-  const existing = await readJsonOrDefault(DEAD_LETTER_PATH, []);
-  existing.push(entry);
-  await writeJson(DEAD_LETTER_PATH, existing);
+async function regenerateCloseoutEvidence() {
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [path.resolve("scripts", "generate_closeout_evidence.mjs")], {
+      cwd: process.cwd()
+    });
+    if (stdout?.trim()) console.log(stdout.trim());
+    if (stderr?.trim()) console.warn(stderr.trim());
+  } catch (err) {
+    console.warn(`Closeout evidence refresh failed: ${err.message}`);
+  }
 }
 
 async function loadCanonicalLocationMap() {
-  const raw = await fs.readFile(CANONICAL_MAP_PATH, "utf8");
-  const json = JSON.parse(raw);
+  const json = JSON.parse(await fs.readFile(CANONICAL_MAP_PATH, "utf8"));
   const locationByLanding = new Map();
   for (const region of Object.values(json.regions || {})) {
     for (const [locationId, payload] of Object.entries(region || {})) {
@@ -213,204 +590,219 @@ async function loadCanonicalLocationMap() {
   return { locationByLanding };
 }
 
-async function fetchReport(url) {
-  const res = await axios.get(url, { timeout: 10000 });
-  const $ = cheerio.load(res.data);
-  const title = $(".report_title_data, h1").first().text().replace(/\s+/g, " ").trim();
-  const narrative = $(".report_descript_data, .content").first().text().replace(/\s+/g, " ").trim();
-  const h3 = $("h3").first().text().replace(/\s+/g, " ").trim();
-  const raw_text = $("body").text().replace(/\s+/g, " ").trim();
-  const boat_candidates = parseBoatCandidates($, title, narrative);
-  const boat_name = boat_candidates[0] || "";
-
-  const images = [];
-  $("img").each((_, el) => {
-    const src = $(el).attr("src");
-    if (!src || !src.includes("media.fishreports.com")) return;
-    images.push(src.startsWith("http") ? src : `https://${src.replace(/^\/\//, "")}`);
-  });
-
-  return { url, title, narrative, h3, raw_text, images, boat_name, boat_candidates };
-}
-
-export async function runPushPipeline() {
+(async () => {
   const accepted = JSON.parse(await fs.readFile(ACCEPTED_PATH, "utf8"));
-  await referenceCache.ensureLoaded();
   const processed = await loadProcessedSet();
-  let recoveryState = await loadRecoveryState();
-  const recoveryConfig = getRecoveryConfig(process.env);
-  const canonical = await loadCanonicalLocationMap();
+  const summary = createRunSummary(accepted.length, processed.size);
 
-  const links = accepted
-    .map((x) => x.link || x.url)
-    .filter((u) => u)
-    .filter((u) => !processed.has(u));
+  try {
+    await referenceCache.ensureLoaded();
+    const canonical = await loadCanonicalLocationMap();
+    const boatMatchers = buildBoatMatchers();
 
-  logEvent("push_run_started", { totalLinks: links.length, dryRun: DRY_RUN, recoveryConfig });
-
-  for (const url of links) {
-    const prior = recoveryState[url];
-    if (isCooldownActive(prior)) {
-      logEvent("push_skipped_cooldown", {
-        url,
-        retryCount: Number(prior.retryCount || 0),
-        nextAttemptAt: new Date(prior.nextAttemptAt).toISOString(),
-        terminalState: "cooldown_active"
-      });
-      continue;
+    const seen = new Map();
+    const links = [];
+    for (const x of accepted) {
+      const url = x.link || x.url;
+      if (!url) continue;
+      const key = canonicalReportKey(url);
+      if (processed.has(url) || processed.has(key) || seen.has(key)) continue;
+      seen.set(key, url);
+      links.push(url);
     }
 
-    const attempt = Number(prior?.retryCount || 0) + 1;
-    logEvent("push_attempt_started", { url, attempt, retryCount: Number(prior?.retryCount || 0) });
+    summary.linksConsidered = links.length;
+    console.log(`Pushing ${links.length} new reports${DRY_RUN ? " (dry run)" : ""}`);
 
-    try {
-      const scraped = await fetchReport(url);
+    for (const url of links) {
+      try {
+        const scraped = await fetchReport(url, summary);
 
-      if ((scraped.images || []).length === 0) {
-        logEvent("push_terminal_skip", { url, reason: "NO_IMAGE", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-      if (isBoatWork(scraped)) {
-        logEvent("push_terminal_skip", { url, reason: "BOAT_WORK", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-
-      const normalized = await normalizeReportWithAI({ trip_name: scraped.title, report: scraped.narrative });
-
-      normalized.images = scraped.images;
-      normalized.boat_name = normalizeBoatAlias(normalized.boat_name || normalized.boat || scraped.boat_name);
-      normalized.trip_date_time = guessDateTime(scraped, normalized);
-      normalized.fish = (normalized.fish || [])
-        .map((f) => ({ ...f, fish_id: f.fish_id || referenceCache.lookupFishId(f.species), count: Number(f.count ?? f.fish_count ?? 0) }))
-        .filter((f) => f.fish_id && Number(f.count) > 0);
-
-      if (countsOnlyNoImage(scraped, normalized)) {
-        logEvent("push_terminal_skip", { url, reason: "COUNTS_ONLY_NO_IMAGE", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-
-      const boatResolved = resolveBoatNameId(normalized, scraped);
-      const boatNameId = boatResolved.boatId;
-      normalized.boat_name = normalized.boat_name || boatResolved.boatName;
-      const landingId = resolveLandingId(normalized, scraped, boatNameId);
-      const tripTypeId = referenceCache.lookupTripTypeId(normalized.trip_type) || "0";
-      const userId = String(referenceCache.user?.id || process.env.REPORTER_USER_ID || "");
-      const locationId = canonical.locationByLanding.get(String(landingId || "")) || "";
-
-      if (!normalized.trip_date_time) {
-        logEvent("push_terminal_skip", { url, reason: "NO_VALID_DATETIME", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-      if (!boatNameId && !landingId) {
-        logEvent("push_terminal_skip", { url, reason: "NO_BOAT_OR_LANDING_MATCH", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-      if (!landingId) {
-        logEvent("push_terminal_skip", { url, reason: "NO_LANDING_MATCH", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-      if ((normalized.fish || []).length === 0) {
-        logEvent("push_terminal_skip", { url, reason: "NO_MAPPED_FISH", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-      if (!locationId) {
-        logEvent("push_terminal_skip", { url, reason: "LANDING_NOT_IN_CANONICAL_MAP", retryCount: 0, terminalState: "skipped" });
-        processed.add(url);
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-      if (!userId) throw new Error("Missing user_id");
-
-      const form = await buildCreateTripPayload(normalized, {
-        locationId,
-        userId,
-        landingId,
-        boatNameId,
-        tripTypeId,
-        status: "pending",
-        shareCatch: "1",
-        conditions: "3"
-      });
-
-      if (DRY_RUN) {
-        logEvent("push_attempt_dry_run", { url, attempt, locationId, landingId, boatNameId, tripTypeId, tripDateTime: normalized.trip_date_time, pictures: normalized.images.length });
-        recoveryState = markPushSuccess(recoveryState, url);
-        continue;
-      }
-
-      const res = await axios.post(`${process.env.API_BASE_URL}/api/v2/createTrip`, form, {
-        headers: {
-          ...form.getHeaders(),
-          Authorization: `Bearer ${referenceCache.token}`,
-          "x-admin-api-key": process.env.ADMIN_API_KEY
+        // Skip if no images, or only the site logo (not a real catch photo)
+        const LOGO_PATTERNS = [
+          /logo/i,
+          /site[-_]?logo/i,
+          /header[-_]?img/i,
+          /fishreports[-_.]com\/images\/(?:logo|header|banner)/i,
+          /\/default[-_]?img/i,
+          /placeholder/i,
+        ];
+        const catchPhotos = (scraped.images || []).filter(
+          (src) => !LOGO_PATTERNS.some((re) => re.test(src))
+        );
+        if (catchPhotos.length === 0) {
+          recordSkip(summary, url, "NO_CATCH_PHOTO");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
         }
-      });
+        scraped.images = catchPhotos;
+        if (isBoatWork(scraped)) {
+          recordSkip(summary, url, "BOAT_WORK");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
 
-      logEvent("push_attempt_succeeded", {
-        url,
-        attempt,
-        retryCount: Number(prior?.retryCount || 0),
-        terminalState: "success",
-        message: res.data?.message || "OK"
-      });
-      processed.add(url);
-      recoveryState = markPushSuccess(recoveryState, url);
-    } catch (err) {
-      const errorMessage = err.response?.data?.message || err.message;
-      const failure = recordPushFailure({
-        state: recoveryState,
-        url,
-        error: errorMessage,
-        maxAttempts: recoveryConfig.maxAttempts,
-        baseCooldownMs: recoveryConfig.baseCooldownMs,
-        maxCooldownMs: recoveryConfig.maxCooldownMs
-      });
-      recoveryState = failure.state;
+        const boat = resolveBoatFromText(scraped.title, scraped.narrative, boatMatchers);
+        const landingId = resolveLanding(boat.boatId, scraped.title, scraped.narrative);
+        const tripDateTime = extractDate(scraped);
+        const fish = extractFishCounts(scraped.narrative);
+        const locationId = canonical.locationByLanding.get(String(landingId || "")) || "";
+        const tripTypeId = inferTripTypeId(scraped.title, scraped.narrative, scraped.h3);
+        const anglersCount = extractAnglers(scraped.title, scraped.narrative);
+        const userId = String(referenceCache.user?.id || process.env.REPORTER_USER_ID || "");
 
-      if (failure.terminal) {
-        await appendDeadLetter(failure.deadLetter);
+        if (!tripDateTime) {
+          recordSkip(summary, url, "NO_VALID_DATETIME");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
+        if (!boat.boatId && !landingId) {
+          recordSkip(summary, url, "NO_BOAT_OR_LANDING_MATCH");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
+        if (!landingId) {
+          recordSkip(summary, url, "NO_LANDING_MATCH");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
+        if (fish.length === 0) {
+          recordSkip(summary, url, "NO_MAPPED_FISH");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
+        if (!locationId) {
+          recordSkip(summary, url, "LANDING_NOT_IN_CANONICAL_MAP");
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
+        if (!userId) throw new Error("CONFIG_ERROR: Missing user_id");
+
+        // Refresh auth token if it's getting stale (prevents mid-run expiry)
+        await referenceCache.ensureAuth();
+
+        const dedupResult = await tripExists(
+          REPORT_API_BASE_URL,
+          referenceCache.token,
+          process.env.ADMIN_API_KEY,
+          { boatId: boat.boatId, landingId, tripDate: tripDateTime, locationId }
+        );
+        if (dedupResult.exists) {
+          recordSkip(summary, url, `DUPLICATE_TRIP:${dedupResult.existingTripId}`);
+          processed.add(url); processed.add(canonicalReportKey(url));
+          continue;
+        }
+
+        let reportText = "";
+        let aiTitle = "";
+        try {
+          const aiResult = await normalizeReportWithAI(
+            { trip_name: scraped.title, report: scraped.narrative },
+            {}
+          );
+          reportText = String(aiResult.report_text || "").trim();
+          aiTitle = String(aiResult.trip_name || "").trim();
+        } catch (err) {
+          console.warn(`  AI summary failed (${err.message}), using fallbacks`);
+        }
+
+        if (!reportText) {
+          reportText = (scraped.narrative || "").slice(0, 200).trim();
+          if (reportText.length === 200) reportText += "...";
+        }
+
+        const baseTitle = aiTitle || scraped.title || "Fishing Report";
+        const tripName = boat.boatName
+          ? `${boat.boatName} — ${baseTitle}`
+          : baseTitle;
+
+        const normalized = {
+          trip_name: tripName,
+          trip_date_time: tripDateTime,
+          boat_name: boat.boatName,
+          landing_name: "",
+          report_text: reportText,
+          fish,
+          images: scraped.images,
+          anglers: anglersCount
+        };
+
+        summary.counters.attempted += 1;
+
+        if (DRY_RUN) {
+          console.log("\n── DRY RUN ────────────────────────────────────");
+          console.log(`  url:           ${url}`);
+          console.log(`  trip_name:     ${normalized.trip_name}`);
+          console.log(`  boat:          ${boat.boatName || "(none)"} → id: ${boat.boatId || "(none)"}`);
+          console.log(`  landingId:     ${landingId}`);
+          console.log(`  locationId:    ${locationId}`);
+          console.log(`  tripTypeId:    ${tripTypeId || "(default)"}`);
+          console.log(`  trip_date:     ${tripDateTime}`);
+          console.log(`  fish:          ${fish.map((f) => `${f.species}(${f.count})[id:${f.fish_id}]`).join(", ")}`);
+          console.log(`  pictures:      ${scraped.images.length}`);
+          console.log(`  report_text:   ${reportText.slice(0, 120)}...`);
+          console.log("───────────────────────────────────────────────\n");
+          bump(summary.outcomes.successReasons, "DRY_RUN_VALIDATED");
+          pushSample(summary.samples.successes, { url, reason: "DRY_RUN_VALIDATED", tripName: normalized.trip_name });
+          continue;
+        }
+
+        const form = await buildCreateTripPayload(normalized, {
+          locationId,
+          userId,
+          landingId,
+          boatNameId: boat.boatId,
+          tripTypeId,
+          status: "pending",
+          shareCatch: "1",
+          conditions: "3"
+        });
+
+        const res = await withStageRetry("create_trip", async () => {
+          try {
+            return await axios.post(`${REPORT_API_BASE_URL}/api/v2/createTrip`, form, {
+              timeout: CREATE_TRIP_TIMEOUT_MS,
+              headers: {
+                ...form.getHeaders(),
+                Authorization: `Bearer ${referenceCache.token}`,
+                "x-admin-api-key": process.env.ADMIN_API_KEY
+              }
+            });
+          } catch (err) {
+            if (/_TIMEOUT$/.test(classifyError(err, "create_trip"))) summary.counters.retriedTimeouts += 1;
+            throw err;
+          }
+        });
+
+        const successReason = res.data?.message || "Trip created successfully.";
+        console.log(`✓ ${url} → ${successReason}`);
+        summary.counters.succeeded += 1;
+        bump(summary.outcomes.successReasons, successReason);
+        pushSample(summary.samples.successes, { url, reason: successReason, tripName });
         processed.add(url);
-        logError("push_attempt_terminal_failure", {
-          url,
-          retryCount: failure.retryCount,
-          terminalState: "dead_lettered",
-          error: errorMessage
-        });
-      } else {
-        logError("push_attempt_failed_retry_scheduled", {
-          url,
-          retryCount: failure.retryCount,
-          terminalState: "retry_scheduled",
-          nextAttemptAt: new Date(failure.nextAttemptAt).toISOString(),
-          error: errorMessage
-        });
+        processed.add(canonicalReportKey(url));
+      } catch (err) {
+        const reason = err.closeoutReason || classifyError(err, "push_report");
+        recordFailure(summary, url, reason);
+        // Mark as processed on permanent API rejections (4xx, 3xx) to stop infinite retries.
+        // Only retry on transient errors (timeouts, 5xx, network).
+        const status = err?.response?.status;
+        if (status && status >= 300 && status < 500) {
+          processed.add(url);
+          processed.add(canonicalReportKey(url));
+        }
       }
     }
-  }
-
-  await saveProcessedSet(processed);
-  await saveRecoveryState(recoveryState);
-  logEvent("push_run_completed", { processedCount: processed.size, recoveryCount: Object.keys(recoveryState).length });
-}
-
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-  runPushPipeline().catch((err) => {
-    logError("push_run_fatal", { error: err?.message || String(err) });
+  } catch (err) {
+    const reason = classifyError(err, "bootstrap");
+    recordFailure(summary, "__bootstrap__", reason);
     process.exitCode = 1;
-  });
-}
+  } finally {
+    await saveProcessedSet(processed);
+    summary.processedCount = processed.size;
+    summary.finishedAt = new Date().toISOString();
+    summary.durationMs = new Date(summary.finishedAt).getTime() - new Date(summary.startedAt).getTime();
+    await writeLatestSummary(summary);
+    await regenerateCloseoutEvidence();
+  }
+})();

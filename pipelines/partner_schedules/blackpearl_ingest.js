@@ -5,10 +5,10 @@ import { sendPartnerNotifications } from "../../core/notifier.js";
 dotenv.config();
 
 const config = {
-  url: "https://elpatron.fishingreservations.net/sales/",
-  bookingBase: "https://elpatron.fishingreservations.net/sales/user.php?trip_id=",
-  partner: "elpatron",
-  boatId: Number(process.env.ELPATRON_BOAT_ID || 178),
+  url: "https://blackpearl.fishingreservations.com/openparty/",
+  bookingBase: "https://blackpearl.fishingreservations.com/openparty/user.php?trip_id=",
+  partner: "blackpearl",
+  boatId: Number(process.env.BLACKPEARL_BOAT_ID || 244),
   defaultPollMinutes: 360
 };
 
@@ -16,6 +16,10 @@ const config = {
   try {
     const previous = await loadPreviousState(config.partner);
     const isFirstRun = previous.length === 0;
+
+    if (isFirstRun) {
+      console.log(`[blackpearl] First run detected — will seed state without sending notifications`);
+    }
 
     const { current, changes, activity } = await scrapePartnerSchedule(config);
 
@@ -26,10 +30,10 @@ const config = {
       isFirstRun
     });
 
-    console.log(`[elpatron] Trips: ${current.length} | Changes: ${changes.length}`);
-    console.log(`[elpatron] Notifications:`, notifyStats);
+    console.log(`[blackpearl] Trips: ${current.length} | Changes: ${changes.length}`);
+    console.log(`[blackpearl] Notifications:`, notifyStats);
   } catch (err) {
-    console.error(`[elpatron] Fatal: ${err.message}`);
+    console.error(`[blackpearl] Fatal: ${err.message}`);
     process.exitCode = 1;
   }
 })();

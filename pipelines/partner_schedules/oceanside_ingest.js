@@ -5,10 +5,10 @@ import { sendPartnerNotifications } from "../../core/notifier.js";
 dotenv.config();
 
 const config = {
-  url: "https://elpatron.fishingreservations.net/sales/",
-  bookingBase: "https://elpatron.fishingreservations.net/sales/user.php?trip_id=",
-  partner: "elpatron",
-  boatId: Number(process.env.ELPATRON_BOAT_ID || 178),
+  url: "https://oceanside.fishingreservations.net/sales/",
+  bookingBase: "https://oceanside.fishingreservations.net/sales/user.php?trip_id=",
+  partner: "oceanside",
+  boatId: Number(process.env.OCEANSIDE_BOAT_ID || 0),
   defaultPollMinutes: 360
 };
 
@@ -26,10 +26,10 @@ const config = {
       isFirstRun
     });
 
-    console.log(`[elpatron] Trips: ${current.length} | Changes: ${changes.length}`);
-    console.log(`[elpatron] Notifications:`, notifyStats);
+    console.log(`[oceanside] Trips: ${current.length} | Changes: ${changes.length}`);
+    console.log(`[oceanside] Notifications:`, notifyStats);
   } catch (err) {
-    console.error(`[elpatron] Fatal: ${err.message}`);
+    console.error(`[oceanside] Fatal: ${err.message}`);
     process.exitCode = 1;
   }
 })();
