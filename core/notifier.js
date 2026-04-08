@@ -22,6 +22,8 @@ const DEFERRED_PATH = path.join(STATE_DIR, "deferred_notifications.json");
 
 const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
 const CLICK_TRACKING_URL = process.env.CLICK_TRACKING_URL || ""; // Supabase Edge Function base URL
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 
 // ── Deep link builder ────────────────────────────────────────────
 
@@ -270,6 +272,40 @@ async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attemp
   }
 }
 
+// ── Supabase send logging (cloud dashboard) ────────────────────
+
+async function logSendToSupabase(sendEntry) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  try {
+    await axios.post(`${SUPABASE_URL}/rest/v1/notification_sends`, {
+      partner: sendEntry.partner,
+      boat_id: sendEntry.boat_id,
+      trip_id: sendEntry.trip_id,
+      stage: sendEntry.stage,
+      change_type: sendEntry.change_type,
+      title: sendEntry.title,
+      body: sendEntry.body || null,
+      deep_link: sendEntry.deep_link,
+      tracked_link: sendEntry.tracked_link || null,
+      click_id: sendEntry.click_id || null,
+      fallback_used: sendEntry.fallback_used || false,
+      attempted: sendEntry.attempted || 0,
+      delivered: sendEntry.delivered || 0,
+      sent_at: sendEntry.sent_at
+    }, {
+      timeout: 5000,
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Prefer": "return=minimal"
+      }
+    });
+  } catch (err) {
+    console.warn(`[supabase] Failed to log send: ${err.message}`);
+  }
+}
+
 // ── Reminder detection ───────────────────────────────────────────
 
 /**
@@ -481,6 +517,17 @@ export async function sendPartnerNotifications(changes, { partner, boatId, curre
         delivered: result.delivered
       });
       await saveSendLog(sendLog);
+
+      // Log to Supabase for cloud dashboard (non-blocking)
+      await logSendToSupabase({
+        partner, boat_id: boatId, trip_id: topChange.trip_id,
+        stage: topChange.stage, change_type: topChange.type,
+        title: message.title, body,
+        deep_link: rawDeepLink, tracked_link: clickId ? deepLink : null,
+        click_id: clickId, fallback_used: result.fallback_used || false,
+        attempted: result.attempted, delivered: result.delivered,
+        sent_at: new Date().toISOString()
+      });
 
       // Log analytics (non-blocking)
       await logAnalyticsEvent(token, {
