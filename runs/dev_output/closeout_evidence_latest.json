@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-04-04T07:47:20.793Z",
+  "counts": {
+    "acceptedTotal": 73,
+    "acceptedCanonicalTotal": 61,
+    "processedTotal": 264,
+    "processedCanonicalTotal": 195,
+    "pendingAcceptedTotal": 0,
+    "pendingAcceptedPct": 0,
+    "deadLetterTotal": 5
+  },
+  "latestPush": {
+    "startedAt": "2026-04-04T07:18:43.056Z",
+    "finishedAt": "2026-04-04T07:18:46.604Z",
+    "durationMs": 3548,
+    "dryRun": false,
+    "linksConsidered": 0,
+    "attempted": 0,
+    "succeeded": 0,
+    "skippedTerminal": 0,
+    "failed": 0,
+    "retriedTimeouts": 0,
+    "topFailureReasons": [],
+    "topSkipReasons": [],
+    "topSuccessReasons": [],
+    "failureSamples": [],
+    "skipSamples": [],
+    "successSamples": []
+  },
+  "evidenceFreshness": {
+    "acceptedUpdatedAt": "2026-04-04T07:18:42.864Z",
+    "acceptedNewerThanLatestPush": false,
+    "processedUpdatedAt": "2026-04-04T07:18:46.604Z",
+    "latestPushUpdatedAt": "2026-04-04T07:18:46.606Z",
+    "latestPushAgeHours": 0.5,
+    "latestPushStale": false,
+    "referenceSnapshotUpdatedAt": "2026-04-04T07:18:46.599Z",
+    "referenceSnapshotSourceTimestamp": "2026-04-04T07:18:46.597Z"
+  },
+  "qaRollup": {
+    "generatedAt": "2026-04-03T07:51:22.013Z",
+    "ageHours": 23.9,
+    "stale": false,
+    "runsTotal": 162,
+    "successRatePct": 98.1,
+    "failureRatePct": 1.9,
+    "thresholdStatus": "ok",
+    "recommendedCliArgs": [
+      "--min-success-rate 96",
+      "--max-failure-rate 4",
+      "--max-skip-rate 0",
+      "--stage-max-avg.totalPipeline=17339"
+    ]
+  },
+  "repoState": {
+    "branch": "feature/pm/fcc-54-59-closeout-evidence",
+    "head": "60a211c45fc63da87b659055a895bb1b693fa881",
+    "dirty": false,
+    "changedFilesCount": 0,
+    "changedFilesSample": [],
+    "generatedEvidenceChanges": [],
+    "generatedEvidenceChangesCount": 0,
+    "localArtifactChanges": [],
+    "localArtifactChangesCount": 0,
+    "reviewBlockingChanges": [],
+    "reviewBlockingChangesCount": 0,
+    "reviewBlockingDirty": false
+  },
+  "closeoutProgress": {
+    "pct": 100,
+    "summary": "100% complete",
+    "targetState": "ready_for_reviewer_ack"
+  },
+  "mergeReadiness": "evidence_ready_for_review",
+  "blockers": [],
+  "ackActions": [
+    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence and request reviewer ACK"
+  ],
+  "nextActions": [
+    "Attach closeout_evidence_latest.md to FCC-54/FCC-59/FCC-60 PR notes or ticket evidence for review",
+    "No new accepted reports remain for push; keep scope on evidence/closeout only unless new intake arrives"
+  ],
+  "samples": {
+    "pendingAccepted": [],
+    "acceptedRecent": [
+      "https://www.longrangesportfishing.net/reports/236541/mai.php",
+      "https://www.longrangesportfishing.net/reports/236417/2026-season-starts-may-8,-2026.php",
+      "https://www.longrangesportfishing.net/reports/236402/opportunity.php",
+      "https://www.longrangesportfishing.net/reports/236132/trip-openings-in-april.php",
+      "https://www.longrangesportfishing.net/reports/236127/bluefin-limits.php",
+      "https://www.longrangesportfishing.net/reports/235942/the-great-fishing-continues.php",
+      "https://www.longrangesportfishing.net/reports/235928/bluefin-limits!.php",
+      "https://www.longrangesportfishing.net/reports/235921/lets-talk-hookup.php",
+      "https://www.longrangesportfishing.net/reports/235909/maintenance-2026.php",
+      "https://www.longrangesportfishing.net/reports/235894/new-trip!.php"
+    ],
+    "processedRecent": [
+      "https://www.sandiegofishreports.com/fish_reports/236532/san-nick-4-3-2026.php",
+      "https://www.socalfishreports.com/fish_reports/236533/mirage-fish-count!.php",
+      "https://www.sandiegofishreports.com/fish_reports/236533/mirage-fish-count!.php",
+      "https://www.norcalfishreports.com/fish_reports/236536/fishing-was-excellent.php",
+      "https://www.sandiegofishreports.com/fish_reports/236538/todays-trip-we-caught-over-100-fish-for-13-people!.php",
+      "https://www.socalfishreports.com/fish_reports/236540/stuffed.php",
+      "https://www.sandiegofishreports.com/fish_reports/236540/stuffed.php",
+      "https://www.socalfishreports.com/fish_reports/236534/santa-rosa-island.php",
+      "https://www.sandiegofishreports.com/fish_reports/236534/santa-rosa-island.php",
+      "https://www.longrangesportfishing.net/reports/236541/mai.php"
+    ]
+  }
+}

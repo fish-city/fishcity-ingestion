@@ -16,7 +16,7 @@ const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
 function parseSpots(raw) {
   const t = clean(raw).toLowerCase();
   if (!t) return { status: "unknown", open_spots: null };
-  if (t.includes("full")) return { status: "full", open_spots: 0 };
+  if (t.includes("full") || t.includes("sold out")) return { status: "full", open_spots: 0 };
   const m = t.match(/(\d+)/);
   if (m) return { status: "open", open_spots: Number(m[1]) };
   if (t.includes("wait")) return { status: "waitlist", open_spots: 0 };
@@ -47,9 +47,20 @@ export function computeChanges(prevRows, currRows) {
       changes.push({ type: "OPEN_TRIP", trip_id: tripId, was, now });
     }
 
-    const nowFew = Number.isFinite(now.open_spots) && now.open_spots > 0 && now.open_spots <= 5;
-    const wasFew = Number.isFinite(was.open_spots) && was.open_spots > 0 && was.open_spots <= 5;
-    if (nowFew && (!wasFew || was.open_spots !== now.open_spots)) {
+    // Detect trip selling out: was open/had spots → now full
+    if (was.status !== "full" && now.status === "full") {
+      changes.push({ type: "SOLD_OUT", trip_id: tripId, was, now });
+    }
+
+    // Spots dropping to ≤5 — threshold backed by scarcity psychology research:
+    // single-digit availability triggers loss aversion (Kahneman); Booking.com
+    // and ticketing platforms converge on 3-5 as the FOMO threshold. 10 is
+    // too high — buyers rationalize "plenty of time" and defer.
+    // SOLD_OUT above now covers the gap if a trip jumps past 5 → 0 between polls.
+    const hasSpots = Number.isFinite(now.open_spots) && now.open_spots > 0;
+    const nowFew = hasSpots && now.open_spots <= 5;
+    const spotsDecreased = Number.isFinite(was.open_spots) && Number.isFinite(now.open_spots) && now.open_spots < was.open_spots;
+    if (nowFew && spotsDecreased) {
       changes.push({ type: "FEW_SPOTS", trip_id: tripId, was, now });
     }
   }
@@ -117,6 +128,18 @@ export async function fetchFishCountActivity(boatId, defaultPollMinutes = 240) {
 }
 
 // ── Trip scraping (fishingreservations.net) ───────────────────────────────────
+//
+// fishingreservations.net uses a responsive Bootstrap grid layout inside table
+// rows.  Trip details live in div.row containers with class-named columns:
+//   .trip-info   → <strong>Boat Name</strong> \n Trip Type
+//   .trip-depart → departure date/time
+//   .trip-return → return date/time
+//   .trip-load   → passenger capacity
+//   .trip-price  → ticket price
+//   .trip-spots  → spots remaining (or "Full", "Waitlist")
+// Trip IDs come from <a href="...?trip_id=XXXX"> booking links.
+// Some sites (El Dorado) also have td.trip-cell[data-trip-id], others
+// (Oceanside) do not — so we use a unified approach based on .trip-info.
 
 export async function fetchTrips(url, bookingBase, partner) {
   const res = await axios.get(url, {
@@ -126,38 +149,69 @@ export async function fetchTrips(url, bookingBase, partner) {
   const $ = cheerio.load(res.data);
   const rows = [];
 
-  $("tr")
-    .filter((_, tr) => $(tr).find("td.trip-cell[data-trip-id]").length > 0)
-    .each((_, tr) => {
-      const row = $(tr);
-      const tripId = row.find("td.trip-cell[data-trip-id]").first().attr("data-trip-id");
-      if (!tripId) return;
+  // Strategy: find every <tr> that contains a .trip-info element.
+  // fishingreservations.net nests Bootstrap grid divs (.trip-info, .trip-depart,
+  // .trip-spots etc.) inside <td> cells within <tr> rows.  Trip IDs come from
+  // either td[data-trip-id] attributes or <a href="...?trip_id=X"> links.
+  $("tr").each((_, tr) => {
+    const $tr = $(tr);
+    const $info = $tr.find(".trip-info").first();
+    if (!$info.length) return; // Not a trip row
 
-      const info = clean(row.find(".trip-info").text());
-      const boat_name = info.split(" ")[0] || "";
-      const trip_name = info.replace(new RegExp(`^${boat_name}\\s*`), "");
-      const spotsRaw = clean(row.find(".trip-spots").text());
-      const spots = parseSpots(spotsRaw);
+    // ── Extract trip ID ─────────────────────────────────────────
+    let tripId = null;
+    let bookingHref = "";
 
-      rows.push({
-        partner,
-        source_url: url,
-        trip_id: String(tripId),
-        booking_url: `${bookingBase}${tripId}`,
-        boat_name,
-        trip_name,
-        departure_text: clean(row.find(".trip-depart").text()),
-        return_text: clean(row.find(".trip-return").text()),
-        load_text: clean(row.find(".trip-load").text()),
-        price_text: clean(row.find(".trip-price").text()),
-        spots_text: spotsRaw,
-        status: spots.status,
-        open_spots: spots.open_spots,
-        scraped_at: new Date().toISOString()
-      });
+    // Method 1: td[data-trip-id] (El Dorado, El Patron)
+    const tripCell = $tr.find("td[data-trip-id]").first();
+    if (tripCell.length) tripId = tripCell.attr("data-trip-id");
+
+    // Method 2: <a href="...?trip_id=XXXX"> booking link
+    const bookingLink = $tr.find('a[href*="trip_id"]').first();
+    if (bookingLink.length) {
+      bookingHref = bookingLink.attr("href") || "";
+      if (!tripId) {
+        const m = bookingHref.match(/trip_id=(\d+)/);
+        if (m) tripId = m[1];
+      }
+    }
+
+    if (!tripId) return; // Skip rows without a trip ID
+
+    // Build booking URL from actual page link, fallback to config base
+    const resolvedBookingUrl = bookingHref
+      ? new URL(bookingHref, url).href
+      : `${bookingBase}${tripId}`;
+
+    // ── Extract boat name (from <strong>) and trip type (text node) ──
+    const boatStrong = $info.find("strong").first();
+    const boat_name = clean(boatStrong.text());
+    const fullInfo = clean($info.text());
+    const trip_name = clean(fullInfo.replace(boat_name, ""));
+
+    // ── Extract remaining fields ────────────────────────────────
+    const spotsRaw = clean($tr.find(".trip-spots").first().text());
+    const spots = parseSpots(spotsRaw);
+
+    rows.push({
+      partner,
+      source_url: url,
+      trip_id: String(tripId),
+      booking_url: resolvedBookingUrl,
+      boat_name,
+      trip_name,
+      departure_text: clean($tr.find(".trip-depart").first().text()),
+      return_text: clean($tr.find(".trip-return").first().text()),
+      load_text: clean($tr.find(".trip-load").first().text()),
+      price_text: clean($tr.find(".trip-price").first().text()),
+      spots_text: spotsRaw,
+      status: spots.status,
+      open_spots: spots.open_spots,
+      scraped_at: new Date().toISOString()
     });
+  });
 
-  // Deduplicate by trip_id within a single scrape
+  // Deduplicate by trip_id (responsive layouts often render each trip twice)
   return [...new Map(rows.map((x) => [x.trip_id, x])).values()];
 }
 
@@ -175,7 +229,11 @@ export async function loadPreviousState(partner) {
 export async function saveCurrentState(partner, rows) {
   await fs.mkdir(STATE_DIR, { recursive: true });
   const statePath = path.join(STATE_DIR, `${partner}_last_snapshot.json`);
-  await fs.writeFile(statePath, JSON.stringify(rows, null, 2));
+  // Atomic write: tmp → rename prevents partial-write corruption
+  // (corrupt state file → all trips look like NEW_TRIP → false notification spam)
+  const tmp = `${statePath}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(rows, null, 2));
+  await fs.rename(tmp, statePath);
 }
 
 // ── Output writing ────────────────────────────────────────────────────────────

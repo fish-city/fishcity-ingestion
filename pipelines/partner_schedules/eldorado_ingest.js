@@ -1,10 +1,12 @@
 import dotenv from "dotenv";
-import { scrapePartnerSchedule } from "../../core/partnerScraper.js";
+import fs from "fs/promises";
+import path from "path";
+import { scrapePartnerSchedule, loadPreviousState } from "../../core/partnerScraper.js";
 import { sendPartnerNotifications } from "../../core/notifier.js";
 
 dotenv.config();
 
-const DRY_RUN = String(process.env.DRY_RUN || "").toLowerCase() === "true";
+const STATE_DIR = path.resolve("state");
 
 const config = {
   url: "https://eldorado.fishingreservations.net/sales/",
@@ -15,17 +17,28 @@ const config = {
 };
 
 (async () => {
-  const { current, changes, activity } = await scrapePartnerSchedule(config);
+  try {
+    // Detect first run: no previous state file exists
+    const previous = await loadPreviousState(config.partner);
+    const isFirstRun = previous.length === 0;
 
-  // Send push notifications for schedule changes
-  if (changes.length > 0) {
+    if (isFirstRun) {
+      console.log(`[eldorado] First run detected — will seed state without sending notifications`);
+    }
+
+    const { current, changes, activity } = await scrapePartnerSchedule(config);
+
     const notifyStats = await sendPartnerNotifications(changes, {
       partner: config.partner,
-      locationId: 1, // San Diego
-      boatId: config.boatId
+      boatId: config.boatId,
+      currentTrips: current,
+      isFirstRun
     });
-    console.log(`[eldorado] Notification stats:`, notifyStats);
-  } else {
-    console.log(`[eldorado] No changes — no notifications needed`);
+
+    console.log(`[eldorado] Trips: ${current.length} | Changes: ${changes.length}`);
+    console.log(`[eldorado] Notifications:`, notifyStats);
+  } catch (err) {
+    console.error(`[eldorado] Fatal: ${err.message}`);
+    process.exitCode = 1;
   }
 })();

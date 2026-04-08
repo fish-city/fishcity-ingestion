@@ -7,10 +7,12 @@
     "ingest:sd": "node pipelines/fishing_reports/ingest.js",
     "push:sd": "node pipelines/fishing_reports/push.js",
     "weather:preview": "node pipelines/weather/run.js",
+    "qa:rollup": "node scripts/refresh_orchestrator_qa_rollup.mjs",
+    "closeout:evidence": "node scripts/generate_closeout_evidence.mjs",
     "partner:eldorado": "node pipelines/partner_schedules/eldorado_ingest.js",
     "partner:elpatron": "node pipelines/partner_schedules/elpatron_ingest.js",
-    "partner:oceanside": "node pipelines/partner_schedules/oceanside_ingest.js",
-    "partner:all": "node pipelines/partner_schedules/eldorado_ingest.js && node pipelines/partner_schedules/elpatron_ingest.js && node pipelines/partner_schedules/oceanside_ingest.js"
+    "partner:blackpearl": "node pipelines/partner_schedules/blackpearl_ingest.js",
+    "partner:all": "node pipelines/partner_schedules/eldorado_ingest.js && node pipelines/partner_schedules/elpatron_ingest.js && node pipelines/partner_schedules/blackpearl_ingest.js"
   },
   "dependencies": {
     "axios": "^1.13.5",

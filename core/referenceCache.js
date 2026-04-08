@@ -131,13 +131,19 @@ export class ReferenceCache {
   token = null; // dev token (used for pushes)
   user = null;
   loaded = false;
+  _tokenIssuedAt = 0;
   idx = { landings: new Map(), boats: new Map(), boatIdToName: new Map(), tripTypes: new Map(), fish: new Map(), boatToLanding: new Map(), landingToBoats: new Map() };
 
   async ensureAuth() {
-    if (this.token) return this.token;
+    // Refresh token if older than 20 minutes (typical JWT expiry is 30-60 min)
+    const TOKEN_MAX_AGE_MS = 20 * 60 * 1000;
+    if (this.token && (Date.now() - this._tokenIssuedAt) < TOKEN_MAX_AGE_MS) {
+      return this.token;
+    }
     const devAuth = await login(API_BASE_URL);
     this.token = devAuth.token;
     this.user = devAuth.user;
+    this._tokenIssuedAt = Date.now();
     return this.token;
   }
 
@@ -228,7 +234,8 @@ export class ReferenceCache {
 
     await this.maybeBackcheck(refSnap);
 
-    console.log(`[refs] loaded from ${refBase} | pushes target ${API_BASE_URL}`);
+    const reportApi = process.env.REPORT_API_BASE_URL || API_BASE_URL;
+    console.log(`[refs] loaded from ${refBase} | notifications → ${API_BASE_URL} | reports → ${reportApi}`);
     this.loaded = true;
   }
 
