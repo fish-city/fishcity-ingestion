@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fish City - Notification Tracking</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; }
+  h1 { font-size: 24px; margin-bottom: 8px; color: #38bdf8; }
+  .subtitle { color: #64748b; margin-bottom: 24px; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
+  .card h2 { font-size: 14px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+  .stat { font-size: 36px; font-weight: 700; }
+  .stat-label { font-size: 13px; color: #64748b; margin-top: 4px; }
+  .stat-row { display: flex; gap: 24px; align-items: baseline; }
+  .stat-sm { font-size: 20px; font-weight: 600; }
+  .green { color: #4ade80; } .blue { color: #38bdf8; } .amber { color: #fbbf24; } .red { color: #f87171; } .purple { color: #a78bfa; }
+  .chart-wrap { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; margin-bottom: 24px; }
+  .chart-wrap h2 { font-size: 14px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; color: #94a3b8; font-weight: 500; border-bottom: 1px solid #334155; }
+  td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+  tr:hover td { background: #1e293b; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-published { background: #1e3a5f; color: #38bdf8; }
+  .badge-filling { background: #422006; color: #fbbf24; }
+  .badge-soldout { background: #3b0764; color: #a78bfa; }
+  .badge-reopened { background: #052e16; color: #4ade80; }
+  .badge-lastchance { background: #450a0a; color: #f87171; }
+  .badge-clicked { background: #052e16; color: #4ade80; }
+  .badge-pending { background: #1e293b; color: #64748b; }
+  .controls { display: flex; gap: 12px; margin-bottom: 24px; align-items: center; }
+  .controls label { font-size: 13px; color: #94a3b8; }
+  select, input { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+  .refresh-btn { background: #1d4ed8; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .refresh-btn:hover { background: #2563eb; }
+  .loading { color: #64748b; text-align: center; padding: 40px; }
+  .error { color: #f87171; background: #450a0a; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+  .timestamp { color: #475569; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Fish City Notification Tracking</h1>
+<p class="subtitle">Partner push notifications - delivery and click-through tracking</p>
+
+<div class="controls">
+  <label>Days:</label>
+  <select id="dayRange" onchange="loadData()">
+    <option value="7" selected>Last 7 days</option>
+    <option value="14">Last 14 days</option>
+    <option value="30">Last 30 days</option>
+  </select>
+  <label>Partner:</label>
+  <select id="partnerFilter" onchange="renderAll()">
+    <option value="all">All Partners</option>
+    <option value="eldorado">El Dorado</option>
+    <option value="elpatron">El Patron</option>
+    <option value="blackpearl">Black Pearl</option>
+  </select>
+  <button class="refresh-btn" onclick="loadData()">Refresh</button>
+  <span id="lastUpdate" class="timestamp"></span>
+</div>
+
+<div id="errorMsg"></div>
+
+<!-- Summary cards -->
+<div class="grid" id="summaryCards">
+  <div class="card"><div class="loading">Loading...</div></div>
+</div>
+
+<!-- Funnel chart -->
+<div class="chart-wrap">
+  <h2>Delivery Funnel by Partner</h2>
+  <canvas id="funnelChart" height="100"></canvas>
+</div>
+
+<!-- Click rate by stage -->
+<div class="chart-wrap">
+  <h2>Click-Through Rate by Stage</h2>
+  <canvas id="stageChart" height="80"></canvas>
+</div>
+
+<!-- Timeline chart -->
+<div class="chart-wrap">
+  <h2>Daily Notification Activity</h2>
+  <canvas id="timelineChart" height="80"></canvas>
+</div>
+
+<!-- Recent notifications table -->
+<div class="chart-wrap">
+  <h2>Recent Notifications</h2>
+  <table id="recentTable">
+    <thead><tr><th>Time</th><th>Partner</th><th>Stage</th><th>Title</th><th>Delivered</th><th>Clicked</th></tr></thead>
+    <tbody id="recentBody"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+const SUPABASE_URL = "https://xatasgytwplfrkgugpwi.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhhdGFzZ3l0d3BsZnJrZ3VncHdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NjgxNzcsImV4cCI6MjA5MTE0NDE3N30.o6K7ChLpyHMVSMhlgLkxuTIEriexmufEAPhtZELTr0k";
+const TRACKING_URL = `${SUPABASE_URL}/functions/v1/redirect`;
+
+let sendLog = [];
+let clickEvents = [];
+let funnelChart, stageChart, timelineChart;
+
+const STAGE_COLORS = {
+  PUBLISHED: "#38bdf8", FILLING_UP: "#fbbf24", LAST_CHANCE: "#f87171",
+  SOLD_OUT: "#a78bfa", REOPENED: "#4ade80", REMINDER: "#fb923c"
+};
+const PARTNER_COLORS = { eldorado: "#38bdf8", elpatron: "#fbbf24", blackpearl: "#a78bfa" };
+const PARTNER_LABELS = { eldorado: "El Dorado", elpatron: "El Patron", blackpearl: "Black Pearl" };
+
+function stageBadge(stage) {
+  const cls = { PUBLISHED: "published", FILLING_UP: "filling", SOLD_OUT: "soldout", REOPENED: "reopened", LAST_CHANCE: "lastchance" }[stage] || "published";
+  return `<span class="badge badge-${cls}">${stage}</span>`;
+}
+
+function formatTime(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" })
+    + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Los_Angeles" });
+}
+
+async function loadData() {
+  const days = Number(document.getElementById("dayRange").value);
+  const errEl = document.getElementById("errorMsg");
+  errEl.innerHTML = "";
+
+  // Load click events from Supabase
+  try {
+    const res = await fetch(`${TRACKING_URL}/stats?days=${days}`);
+    const data = await res.json();
+    clickEvents = data.events || [];
+  } catch (err) {
+    errEl.innerHTML = `<div class="error">Click tracking unavailable: ${err.message}</div>`;
+    clickEvents = [];
+  }
+
+  // Load send log from Supabase
+  try {
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/notification_sends?sent_at=gte.${since}&order=sent_at.desc&limit=500`,
+      { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (res.ok) sendLog = await res.json();
+  } catch (err) {
+    errEl.innerHTML += `<div class="error">Send log unavailable: ${err.message}</div>`;
+  }
+
+  document.getElementById("lastUpdate").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  renderAll();
+}
+
+function getFilteredSends() {
+  const partner = document.getElementById("partnerFilter").value;
+  return partner === "all" ? sendLog : sendLog.filter(s => s.partner === partner);
+}
+
+function getFilteredClicks() {
+  const partner = document.getElementById("partnerFilter").value;
+  return partner === "all" ? clickEvents : clickEvents.filter(e => e.partner === partner);
+}
+
+function renderAll() {
+  renderSummaryCards();
+  renderFunnelChart();
+  renderStageChart();
+  renderTimelineChart();
+  renderRecentTable();
+}
+
+function renderSummaryCards() {
+  const sends = getFilteredSends();
+  const clicks = getFilteredClicks();
+  const totalSent = sends.length;
+  const totalDelivered = sends.reduce((a, s) => a + (s.delivered || 0), 0);
+  const totalAttempted = sends.reduce((a, s) => a + (s.attempted || 0), 0);
+  const totalClicked = clicks.filter(e => e.clicked_at).length;
+  const totalRegistered = clicks.length;
+  const ctr = totalRegistered > 0 ? ((totalClicked / totalRegistered) * 100).toFixed(1) : "0.0";
+  const deliveryRate = totalAttempted > 0 ? ((totalDelivered / totalAttempted) * 100).toFixed(1) : "0.0";
+
+  document.getElementById("summaryCards").innerHTML = `
+    <div class="card">
+      <h2>Notifications Sent</h2>
+      <div class="stat blue">${totalSent}</div>
+      <div class="stat-label">${totalAttempted} attempted, ${totalDelivered} delivered</div>
+    </div>
+    <div class="card">
+      <h2>Delivery Rate</h2>
+      <div class="stat green">${deliveryRate}%</div>
+      <div class="stat-label">${totalDelivered} of ${totalAttempted} push attempts</div>
+    </div>
+    <div class="card">
+      <h2>Click-Through Rate</h2>
+      <div class="stat ${totalClicked > 0 ? 'amber' : ''}">${ctr}%</div>
+      <div class="stat-label">${totalClicked} clicks of ${totalRegistered} tracked links</div>
+    </div>
+    <div class="card">
+      <h2>Partners Active</h2>
+      <div class="stat purple">${new Set(sends.map(s => s.partner)).size}</div>
+      <div class="stat-label">${[...new Set(sends.map(s => s.partner))].map(p => PARTNER_LABELS[p] || p).join(", ") || "None"}</div>
+    </div>
+  `;
+}
+
+function renderFunnelChart() {
+  const sends = getFilteredSends();
+  const clicks = getFilteredClicks();
+  const partners = [...new Set(sends.map(s => s.partner))].sort();
+
+  const datasets = [
+    { label: "Attempted", data: partners.map(p => sends.filter(s => s.partner === p).reduce((a, s) => a + (s.attempted || 0), 0)), backgroundColor: "#334155" },
+    { label: "Delivered", data: partners.map(p => sends.filter(s => s.partner === p).reduce((a, s) => a + (s.delivered || 0), 0)), backgroundColor: "#38bdf8" },
+    { label: "Clicked", data: partners.map(p => clicks.filter(e => e.partner === p && e.clicked_at).length), backgroundColor: "#4ade80" }
+  ];
+
+  if (funnelChart) funnelChart.destroy();
+  funnelChart = new Chart(document.getElementById("funnelChart"), {
+    type: "bar",
+    data: { labels: partners.map(p => PARTNER_LABELS[p] || p), datasets },
+    options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { color: "#64748b" }, grid: { color: "#1e293b" } }, x: { ticks: { color: "#94a3b8" }, grid: { display: false } } }, plugins: { legend: { labels: { color: "#94a3b8" } } } }
+  });
+}
+
+function renderStageChart() {
+  const clicks = getFilteredClicks();
+  const stages = [...new Set(clicks.map(e => e.stage).filter(Boolean))];
+
+  const data = stages.map(stage => {
+    const total = clicks.filter(e => e.stage === stage).length;
+    const clicked = clicks.filter(e => e.stage === stage && e.clicked_at).length;
+    return { stage, total, clicked, rate: total > 0 ? (clicked / total * 100) : 0 };
+  }).sort((a, b) => b.rate - a.rate);
+
+  if (stageChart) stageChart.destroy();
+  stageChart = new Chart(document.getElementById("stageChart"), {
+    type: "bar",
+    data: {
+      labels: data.map(d => d.stage),
+      datasets: [{ label: "CTR %", data: data.map(d => d.rate.toFixed(1)), backgroundColor: data.map(d => STAGE_COLORS[d.stage] || "#64748b") }]
+    },
+    options: { indexAxis: "y", responsive: true, scales: { x: { beginAtZero: true, max: 100, ticks: { color: "#64748b", callback: v => v + "%" }, grid: { color: "#1e293b" } }, y: { ticks: { color: "#94a3b8" }, grid: { display: false } } }, plugins: { legend: { display: false } } }
+  });
+}
+
+function renderTimelineChart() {
+  const sends = getFilteredSends();
+  const clicks = getFilteredClicks();
+
+  // Group by date
+  const dates = new Map();
+  sends.forEach(s => {
+    const d = s.sent_at.slice(0, 10);
+    if (!dates.has(d)) dates.set(d, { sent: 0, delivered: 0, clicked: 0 });
+    dates.get(d).sent++;
+    dates.get(d).delivered += (s.delivered || 0);
+  });
+  clicks.filter(e => e.clicked_at).forEach(e => {
+    const d = e.clicked_at.slice(0, 10);
+    if (!dates.has(d)) dates.set(d, { sent: 0, delivered: 0, clicked: 0 });
+    dates.get(d).clicked++;
+  });
+
+  const sorted = [...dates.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const labels = sorted.map(([d]) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+
+  if (timelineChart) timelineChart.destroy();
+  timelineChart = new Chart(document.getElementById("timelineChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Sends", data: sorted.map(([, v]) => v.sent), borderColor: "#38bdf8", tension: 0.3, fill: false },
+        { label: "Delivered", data: sorted.map(([, v]) => v.delivered), borderColor: "#4ade80", tension: 0.3, fill: false },
+        { label: "Clicks", data: sorted.map(([, v]) => v.clicked), borderColor: "#fbbf24", tension: 0.3, fill: false }
+      ]
+    },
+    options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { color: "#64748b" }, grid: { color: "#1e293b" } }, x: { ticks: { color: "#94a3b8" }, grid: { display: false } } }, plugins: { legend: { labels: { color: "#94a3b8" } } } }
+  });
+}
+
+function renderRecentTable() {
+  const sends = getFilteredSends().sort((a, b) => b.sent_at.localeCompare(a.sent_at)).slice(0, 50);
+  const clickMap = new Map(clickEvents.map(e => [e.click_id, e]));
+
+  const rows = sends.map(s => {
+    const click = s.click_id ? clickMap.get(s.click_id) : null;
+    const clickStatus = click?.clicked_at
+      ? `<span class="badge badge-clicked">Clicked ${formatTime(click.clicked_at)}</span>`
+      : s.click_id
+        ? `<span class="badge badge-pending">Tracked</span>`
+        : `<span class="timestamp">No tracking</span>`;
+
+    return `<tr>
+      <td>${formatTime(s.sent_at)}</td>
+      <td>${PARTNER_LABELS[s.partner] || s.partner}</td>
+      <td>${stageBadge(s.stage)}</td>
+      <td>${s.title || "-"}</td>
+      <td>${s.delivered || 0}/${s.attempted || 0}</td>
+      <td>${clickStatus}</td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("recentBody").innerHTML = rows || '<tr><td colspan="6" class="loading">No data yet</td></tr>';
+}
+
+// Auto-load on page open
+loadData();
+// Auto-refresh every 60 seconds
+setInterval(loadData, 60000);
+</script>
+</body>
+</html>
