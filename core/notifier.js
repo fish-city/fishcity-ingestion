@@ -55,7 +55,10 @@ async function saveSendLog(log) {
   await fs.mkdir(STATE_DIR, { recursive: true });
   const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000; // Keep 14 days
   log.sends = (log.sends || []).filter((s) => new Date(s.sent_at).getTime() > cutoff);
-  await fs.writeFile(SEND_LOG_PATH, JSON.stringify(log, null, 2));
+  // Atomic write: tmp file → rename prevents partial-write corruption
+  const tmp = `${SEND_LOG_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(log, null, 2));
+  await fs.rename(tmp, SEND_LOG_PATH);
 }
 
 async function loadDeferred() {
@@ -71,7 +74,9 @@ async function saveDeferred(items) {
   // Drop deferred items older than 24 hours (stale)
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const fresh = (items || []).filter((d) => new Date(d.deferred_at).getTime() > cutoff);
-  await fs.writeFile(DEFERRED_PATH, JSON.stringify(fresh, null, 2));
+  const tmp = `${DEFERRED_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(fresh, null, 2));
+  await fs.rename(tmp, DEFERRED_PATH);
 }
 
 // ── Auth ─────────────────────────────────────────────────────────

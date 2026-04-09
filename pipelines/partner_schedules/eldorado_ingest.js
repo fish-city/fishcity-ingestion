@@ -17,24 +17,28 @@ const config = {
 };
 
 (async () => {
-  // Detect first run: no previous state file exists
-  const previous = await loadPreviousState(config.partner);
-  const isFirstRun = previous.length === 0;
+  try {
+    // Detect first run: no previous state file exists
+    const previous = await loadPreviousState(config.partner);
+    const isFirstRun = previous.length === 0;
 
-  if (isFirstRun) {
-    console.log(`[eldorado] First run detected — will seed state without sending notifications`);
+    if (isFirstRun) {
+      console.log(`[eldorado] First run detected — will seed state without sending notifications`);
+    }
+
+    const { current, changes, activity } = await scrapePartnerSchedule(config);
+
+    const notifyStats = await sendPartnerNotifications(changes, {
+      partner: config.partner,
+      boatId: config.boatId,
+      currentTrips: current,
+      isFirstRun
+    });
+
+    console.log(`[eldorado] Trips: ${current.length} | Changes: ${changes.length}`);
+    console.log(`[eldorado] Notifications:`, notifyStats);
+  } catch (err) {
+    console.error(`[eldorado] Fatal: ${err.message}`);
+    process.exitCode = 1;
   }
-
-  const { current, changes, activity } = await scrapePartnerSchedule(config);
-
-  // Send notifications (lifecycle model handles first-run guard, reminders, etc.)
-  const notifyStats = await sendPartnerNotifications(changes, {
-    partner: config.partner,
-    boatId: config.boatId,
-    currentTrips: current,
-    isFirstRun
-  });
-
-  console.log(`[eldorado] Trips: ${current.length} | Changes: ${changes.length}`);
-  console.log(`[eldorado] Notifications:`, notifyStats);
 })();

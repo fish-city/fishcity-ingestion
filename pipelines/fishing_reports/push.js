@@ -548,9 +548,21 @@ async function loadProcessedSet() {
   catch { return new Set(); }
 }
 
+// Cap processed set to avoid unbounded growth (~140 links/run × 3 runs/day × 90 days)
+const MAX_PROCESSED_URLS = 40000;
+
 async function saveProcessedSet(set) {
   await fs.mkdir(STATE_DIR, { recursive: true });
-  await fs.writeFile(PROCESSED_PATH, JSON.stringify([...set], null, 2));
+  let urls = [...set];
+  // Trim oldest entries (front of array) when over cap
+  if (urls.length > MAX_PROCESSED_URLS) {
+    const trimmed = urls.length - MAX_PROCESSED_URLS;
+    urls = urls.slice(trimmed);
+    console.log(`[processed] Pruned ${trimmed} old URLs (capped at ${MAX_PROCESSED_URLS})`);
+  }
+  const tmp = `${PROCESSED_PATH}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(urls, null, 2));
+  await fs.rename(tmp, PROCESSED_PATH);
 }
 
 async function regenerateCloseoutEvidence() {
@@ -666,6 +678,9 @@ async function loadCanonicalLocationMap() {
         }
         if (!userId) throw new Error("CONFIG_ERROR: Missing user_id");
 
+        // Refresh auth token if it's getting stale (prevents mid-run expiry)
+        await referenceCache.ensureAuth();
+
         const dedupResult = await tripExists(
           REPORT_API_BASE_URL,
           referenceCache.token,
@@ -769,6 +784,13 @@ async function loadCanonicalLocationMap() {
       } catch (err) {
         const reason = err.closeoutReason || classifyError(err, "push_report");
         recordFailure(summary, url, reason);
+        // Mark as processed on permanent API rejections (4xx, 3xx) to stop infinite retries.
+        // Only retry on transient errors (timeouts, 5xx, network).
+        const status = err?.response?.status;
+        if (status && status >= 300 && status < 500) {
+          processed.add(url);
+          processed.add(canonicalReportKey(url));
+        }
       }
     }
   } catch (err) {

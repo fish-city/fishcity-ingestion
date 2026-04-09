@@ -16,7 +16,7 @@ const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
 function parseSpots(raw) {
   const t = clean(raw).toLowerCase();
   if (!t) return { status: "unknown", open_spots: null };
-  if (t.includes("full")) return { status: "full", open_spots: 0 };
+  if (t.includes("full") || t.includes("sold out")) return { status: "full", open_spots: 0 };
   const m = t.match(/(\d+)/);
   if (m) return { status: "open", open_spots: Number(m[1]) };
   if (t.includes("wait")) return { status: "waitlist", open_spots: 0 };
@@ -229,7 +229,11 @@ export async function loadPreviousState(partner) {
 export async function saveCurrentState(partner, rows) {
   await fs.mkdir(STATE_DIR, { recursive: true });
   const statePath = path.join(STATE_DIR, `${partner}_last_snapshot.json`);
-  await fs.writeFile(statePath, JSON.stringify(rows, null, 2));
+  // Atomic write: tmp → rename prevents partial-write corruption
+  // (corrupt state file → all trips look like NEW_TRIP → false notification spam)
+  const tmp = `${statePath}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(rows, null, 2));
+  await fs.rename(tmp, statePath);
 }
 
 // ── Output writing ────────────────────────────────────────────────────────────

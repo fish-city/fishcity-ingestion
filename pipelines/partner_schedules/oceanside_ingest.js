@@ -13,18 +13,23 @@ const config = {
 };
 
 (async () => {
-  const previous = await loadPreviousState(config.partner);
-  const isFirstRun = previous.length === 0;
+  try {
+    const previous = await loadPreviousState(config.partner);
+    const isFirstRun = previous.length === 0;
 
-  const { current, changes, activity } = await scrapePartnerSchedule(config);
+    const { current, changes, activity } = await scrapePartnerSchedule(config);
 
-  const notifyStats = await sendPartnerNotifications(changes, {
-    partner: config.partner,
-    boatId: config.boatId,
-    currentTrips: current,
-    isFirstRun
-  });
+    const notifyStats = await sendPartnerNotifications(changes, {
+      partner: config.partner,
+      boatId: config.boatId,
+      currentTrips: current,
+      isFirstRun
+    });
 
-  console.log(`[oceanside] Trips: ${current.length} | Changes: ${changes.length}`);
-  console.log(`[oceanside] Notifications:`, notifyStats);
+    console.log(`[oceanside] Trips: ${current.length} | Changes: ${changes.length}`);
+    console.log(`[oceanside] Notifications:`, notifyStats);
+  } catch (err) {
+    console.error(`[oceanside] Fatal: ${err.message}`);
+    process.exitCode = 1;
+  }
 })();
