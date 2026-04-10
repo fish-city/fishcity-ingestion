@@ -40,6 +40,13 @@
   .loading { color: #64748b; text-align: center; padding: 40px; }
   .error { color: #f87171; background: #450a0a; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
   .timestamp { color: #475569; font-size: 12px; }
+  .heatmap-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  .heatmap-table th { padding: 6px 8px; color: #94a3b8; font-weight: 500; text-align: center; }
+  .heatmap-table td { padding: 0; text-align: center; }
+  .heatmap-cell { width: 100%; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #e2e8f0; border-radius: 4px; margin: 2px; }
+  .ttc-breakdown { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+  .ttc-item { font-size: 12px; color: #94a3b8; }
+  .ttc-item strong { color: #e2e8f0; }
 </style>
 </head>
 <body>
@@ -61,6 +68,17 @@
     <option value="elpatron">El Patron</option>
     <option value="blackpearl">Black Pearl</option>
   </select>
+  <label>Stage:</label>
+  <select id="stageFilter" onchange="renderAll()">
+    <option value="all">All Stages</option>
+    <option value="PUBLISHED">Published</option>
+    <option value="FILLING_UP">Filling Up</option>
+    <option value="LAST_CHANCE">Last Chance</option>
+    <option value="SOLD_OUT">Sold Out</option>
+    <option value="REOPENED">Reopened</option>
+  </select>
+  <label>Trip:</label>
+  <input id="tripSearch" type="text" placeholder="Search trip title..." oninput="renderAll()" style="width: 180px;">
   <button class="refresh-btn" onclick="loadData()">Refresh</button>
   <span id="lastUpdate" class="timestamp"></span>
 </div>
@@ -88,6 +106,24 @@
 <div class="chart-wrap">
   <h2>Daily Notification Activity</h2>
   <canvas id="timelineChart" height="80"></canvas>
+</div>
+
+<!-- Top performing notifications -->
+<div class="chart-wrap">
+  <h2>Top Performing Notifications <span style="font-size:11px;color:#64748b;text-transform:none;letter-spacing:0">(by click-through rate)</span></h2>
+  <table id="topTable">
+    <thead><tr><th>Partner</th><th>Stage</th><th>Trip</th><th>Sent</th><th>Delivered</th><th>Clicks</th><th>CTR</th></tr></thead>
+    <tbody id="topBody"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+  </table>
+</div>
+
+<!-- Time to click -->
+<div class="grid" id="ttcCards" style="margin-bottom:24px"></div>
+
+<!-- Heatmap -->
+<div class="chart-wrap">
+  <h2>Click Activity Heatmap <span style="font-size:11px;color:#64748b;text-transform:none;letter-spacing:0">(hour of day × day of week)</span></h2>
+  <div id="heatmapWrap" style="overflow-x:auto"></div>
 </div>
 
 <!-- Recent notifications table -->
@@ -160,12 +196,24 @@ async function loadData() {
 
 function getFilteredSends() {
   const partner = document.getElementById("partnerFilter").value;
-  return partner === "all" ? sendLog : sendLog.filter(s => s.partner === partner);
+  const stage = document.getElementById("stageFilter").value;
+  const search = document.getElementById("tripSearch").value.toLowerCase().trim();
+  let result = sendLog;
+  if (partner !== "all") result = result.filter(s => s.partner === partner);
+  if (stage !== "all") result = result.filter(s => s.stage === stage);
+  if (search) result = result.filter(s => (s.title || "").toLowerCase().includes(search));
+  return result;
 }
 
 function getFilteredClicks() {
   const partner = document.getElementById("partnerFilter").value;
-  return partner === "all" ? clickEvents : clickEvents.filter(e => e.partner === partner);
+  const stage = document.getElementById("stageFilter").value;
+  const search = document.getElementById("tripSearch").value.toLowerCase().trim();
+  let result = clickEvents;
+  if (partner !== "all") result = result.filter(e => e.partner === partner);
+  if (stage !== "all") result = result.filter(e => e.stage === stage);
+  if (search) result = result.filter(e => (e.title || "").toLowerCase().includes(search));
+  return result;
 }
 
 function renderAll() {
@@ -173,6 +221,9 @@ function renderAll() {
   renderFunnelChart();
   renderStageChart();
   renderTimelineChart();
+  renderTopPerformers();
+  renderTimeToClick();
+  renderHeatmap();
   renderRecentTable();
 }
 
@@ -310,6 +361,153 @@ function renderRecentTable() {
   }).join("");
 
   document.getElementById("recentBody").innerHTML = rows || '<tr><td colspan="6" class="loading">No data yet</td></tr>';
+}
+
+function renderTopPerformers() {
+  const sends = getFilteredSends();
+  const clicks = getFilteredClicks();
+
+  // Group by partner+stage+title combo
+  const groups = new Map();
+  sends.forEach(s => {
+    const key = `${s.partner}|${s.stage}|${s.title || "Untitled"}`;
+    if (!groups.has(key)) groups.set(key, { partner: s.partner, stage: s.stage, title: s.title || "Untitled", sent: 0, delivered: 0, clicks: 0 });
+    const g = groups.get(key);
+    g.sent++;
+    g.delivered += (s.delivered || 0);
+  });
+  clicks.filter(e => e.clicked_at).forEach(e => {
+    const key = `${e.partner}|${e.stage}|${e.title || "Untitled"}`;
+    if (groups.has(key)) groups.get(key).clicks++;
+  });
+
+  const ranked = [...groups.values()]
+    .map(g => ({ ...g, ctr: g.sent > 0 ? (g.clicks / g.sent * 100) : 0 }))
+    .sort((a, b) => b.ctr - a.ctr || b.clicks - a.clicks)
+    .slice(0, 20);
+
+  const rows = ranked.map(r => `<tr>
+    <td>${PARTNER_LABELS[r.partner] || r.partner}</td>
+    <td>${stageBadge(r.stage)}</td>
+    <td>${r.title}</td>
+    <td>${r.sent}</td>
+    <td>${r.delivered}</td>
+    <td>${r.clicks}</td>
+    <td><strong class="${r.ctr > 50 ? 'green' : r.ctr > 0 ? 'amber' : ''}">${r.ctr.toFixed(1)}%</strong></td>
+  </tr>`).join("");
+
+  document.getElementById("topBody").innerHTML = rows || '<tr><td colspan="7" class="loading">No data</td></tr>';
+}
+
+function renderTimeToClick() {
+  const clicks = getFilteredClicks().filter(e => e.clicked_at && e.created_at);
+
+  if (clicks.length === 0) {
+    document.getElementById("ttcCards").innerHTML = `<div class="card" style="grid-column:1/-1"><h2>Time to Click</h2><div class="stat-label">No click data available for this filter</div></div>`;
+    return;
+  }
+
+  const deltas = clicks.map(e => {
+    const created = new Date(e.created_at).getTime();
+    const clicked = new Date(e.clicked_at).getTime();
+    return Math.max(0, (clicked - created) / 60000); // minutes
+  }).sort((a, b) => a - b);
+
+  const median = deltas[Math.floor(deltas.length / 2)];
+  const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+  const under5 = deltas.filter(d => d <= 5).length;
+  const under30 = deltas.filter(d => d <= 30).length;
+  const under60 = deltas.filter(d => d <= 60).length;
+
+  function fmtMin(m) {
+    if (m < 60) return `${Math.round(m)}m`;
+    if (m < 1440) return `${(m / 60).toFixed(1)}h`;
+    return `${(m / 1440).toFixed(1)}d`;
+  }
+
+  // Per-stage breakdown
+  const stageDeltas = {};
+  clicks.forEach(e => {
+    const st = e.stage || "UNKNOWN";
+    if (!stageDeltas[st]) stageDeltas[st] = [];
+    const d = Math.max(0, (new Date(e.clicked_at).getTime() - new Date(e.created_at).getTime()) / 60000);
+    stageDeltas[st].push(d);
+  });
+
+  const stageBreakdown = Object.entries(stageDeltas).map(([st, ds]) => {
+    ds.sort((a, b) => a - b);
+    const med = ds[Math.floor(ds.length / 2)];
+    return `<span class="ttc-item"><span class="badge badge-${({PUBLISHED:"published",FILLING_UP:"filling",SOLD_OUT:"soldout",REOPENED:"reopened",LAST_CHANCE:"lastchance"})[st] || "published"}">${st}</span> <strong>${fmtMin(med)}</strong> median</span>`;
+  }).join("");
+
+  document.getElementById("ttcCards").innerHTML = `
+    <div class="card">
+      <h2>Median Time to Click</h2>
+      <div class="stat amber">${fmtMin(median)}</div>
+      <div class="stat-label">Average: ${fmtMin(avg)} across ${clicks.length} clicks</div>
+    </div>
+    <div class="card">
+      <h2>Click Speed Distribution</h2>
+      <div class="stat-row">
+        <div><div class="stat-sm green">${((under5/clicks.length)*100).toFixed(0)}%</div><div class="stat-label">&lt; 5 min</div></div>
+        <div><div class="stat-sm blue">${((under30/clicks.length)*100).toFixed(0)}%</div><div class="stat-label">&lt; 30 min</div></div>
+        <div><div class="stat-sm amber">${((under60/clicks.length)*100).toFixed(0)}%</div><div class="stat-label">&lt; 1 hour</div></div>
+      </div>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <h2>Time to Click by Stage</h2>
+      <div class="ttc-breakdown">${stageBreakdown || '<span class="stat-label">No stage data</span>'}</div>
+    </div>
+  `;
+}
+
+function renderHeatmap() {
+  const clicks = getFilteredClicks().filter(e => e.clicked_at);
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+
+  // Build grid[day][hour] = count
+  const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  clicks.forEach(e => {
+    const d = new Date(e.clicked_at);
+    // Convert to Pacific time for display
+    const pacific = new Date(d.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    grid[pacific.getDay()][pacific.getHours()]++;
+  });
+
+  const maxVal = Math.max(1, ...grid.flat());
+
+  function cellColor(count) {
+    if (count === 0) return "#1e293b";
+    const intensity = count / maxVal;
+    if (intensity > 0.75) return "#22c55e";
+    if (intensity > 0.5) return "#4ade80";
+    if (intensity > 0.25) return "#166534";
+    return "#14532d";
+  }
+
+  let html = '<table class="heatmap-table"><thead><tr><th></th>';
+  hours.forEach(h => {
+    const label = h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`;
+    html += `<th>${label}</th>`;
+  });
+  html += "</tr></thead><tbody>";
+
+  days.forEach((day, di) => {
+    html += `<tr><th>${day}</th>`;
+    hours.forEach(h => {
+      const count = grid[di][h];
+      html += `<td><div class="heatmap-cell" style="background:${cellColor(count)}" title="${day} ${h}:00 — ${count} clicks">${count || ""}</div></td>`;
+    });
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+
+  if (clicks.length === 0) {
+    html = '<div class="stat-label" style="text-align:center;padding:24px">No click data available for this filter</div>';
+  }
+
+  document.getElementById("heatmapWrap").innerHTML = html;
 }
 
 // Auto-load on page open

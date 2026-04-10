@@ -328,7 +328,7 @@ export function checkFrequencyCap(sends, partner, stage, tripId = null) {
  */
 export function rankChanges(changes) {
   const classified = changes
-    .map((c) => ({ ...c, stage: classifyChange(c) }))
+    .map((c) => ({ ...c, stage: c.stage || classifyChange(c) }))
     .filter((c) => c.stage !== null);
 
   if (classified.length === 0) return null;
