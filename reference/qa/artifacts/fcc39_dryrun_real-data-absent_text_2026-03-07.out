@@ -1,0 +1,7 @@
+
+> fish-city-ingestion@0.2.0 orchestrator:rollup:report
+> node scripts/orchestrator_rollup_report.mjs --window-days 7 --include-calibration true --dashboard-output state/orchestrator_rollup_dashboard_dryrun_absent.json
+
+Fish City Ingestion Orchestrator — Daily Rollups
+Generated: 2026-03-07T18:47:54.000Z
+No rollup data found.

@@ -1,0 +1,119 @@
+
+> fish-city-ingestion@0.2.0 orchestrator:rollup:report
+> node scripts/orchestrator_rollup_report.mjs --day 2026-03-05 --json true
+
+{
+  "generatedAt": "2026-03-07T18:42:12.558Z",
+  "windowDays": 1,
+  "selectedDay": "2026-03-05",
+  "availableDays": [
+    "2026-03-03",
+    "2026-03-04",
+    "2026-03-05",
+    "2026-03-06"
+  ],
+  "totals": {
+    "runsTotal": 11,
+    "completed": 9,
+    "failed": 2,
+    "skipped": 0,
+    "stageStats": {
+      "snapshot": {
+        "totalMs": 59000,
+        "maxMs": 9700,
+        "avgMs": 5364
+      },
+      "diff": {
+        "totalMs": 7200,
+        "maxMs": 1200,
+        "avgMs": 655
+      },
+      "rules": {
+        "totalMs": 2400,
+        "maxMs": 470,
+        "avgMs": 218
+      },
+      "push": {
+        "totalMs": 8200,
+        "maxMs": 1700,
+        "avgMs": 745
+      },
+      "totalPipeline": {
+        "totalMs": 76800,
+        "maxMs": 12100,
+        "avgMs": 6982
+      }
+    },
+    "successRatePct": 81.8,
+    "failureRatePct": 18.2,
+    "skipRatePct": 0
+  },
+  "days": [
+    {
+      "day": "2026-03-05",
+      "lastRunAt": "2026-03-05T23:57:00.000Z",
+      "runsTotal": 11,
+      "completed": 9,
+      "failed": 2,
+      "skipped": 0,
+      "successRatePct": 81.8,
+      "failureRatePct": 18.2,
+      "skipRatePct": 0,
+      "stageStats": {
+        "snapshot": {
+          "totalMs": 59000,
+          "maxMs": 9700,
+          "avgMs": 5364
+        },
+        "diff": {
+          "totalMs": 7200,
+          "maxMs": 1200,
+          "avgMs": 655
+        },
+        "rules": {
+          "totalMs": 2400,
+          "maxMs": 470,
+          "avgMs": 218
+        },
+        "push": {
+          "totalMs": 8200,
+          "maxMs": 1700,
+          "avgMs": 745
+        },
+        "totalPipeline": {
+          "totalMs": 76800,
+          "maxMs": 12100,
+          "avgMs": 6982
+        }
+      }
+    }
+  ],
+  "thresholdEvaluation": {
+    "thresholds": {
+      "maxStageAvgMs": {
+        "snapshot": 4000,
+        "push": 5000,
+        "totalPipeline": 12000
+      }
+    },
+    "status": "warn",
+    "issues": [
+      {
+        "kind": "stage_avg_high",
+        "severity": "warn",
+        "stage": "snapshot",
+        "actual": 5364,
+        "threshold": 4000,
+        "message": "Stage snapshot avg 5364ms above threshold 4000ms"
+      }
+    ]
+  },
+  "alertEvaluation": {
+    "shouldAlert": false,
+    "status": "ok",
+    "requiredConsecutiveWarnDays": 2,
+    "consecutiveWarnDays": 1,
+    "latestDay": "2026-03-05",
+    "reasons": []
+  }
+}
