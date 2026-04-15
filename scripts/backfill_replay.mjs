@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { parseReplayArgs, enumerateDates } from "../core/backfillReplayCli.js";
 import { normalizeReportWithAI } from "../core/aiNormalizer.js";
 import { referenceCache } from "../core/referenceCache.js";
-import { buildLocationPayload } from "../pipelines/weather/run.js";
+import { buildLocationPayload } from "../pipelines/weather/preview.js";
 
 dotenv.config();
 

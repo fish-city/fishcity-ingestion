@@ -4,22 +4,33 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "node scheduler.js",
     "ingest:sd": "node pipelines/fishing_reports/ingest.js",
     "push:sd": "node pipelines/fishing_reports/push.js",
-    "weather:preview": "node pipelines/weather/run.js",
+    "weather:run": "node pipelines/weather/run.js",
+    "weather:forecast": "node pipelines/weather/run.js --days 10",
+    "weather:preview": "node pipelines/weather/run.js --preview",
+    "weather:dry-run": "node pipelines/weather/run.js --dry-run",
     "qa:rollup": "node scripts/refresh_orchestrator_qa_rollup.mjs",
     "closeout:evidence": "node scripts/generate_closeout_evidence.mjs",
     "partner:eldorado": "node pipelines/partner_schedules/eldorado_ingest.js",
     "partner:elpatron": "node pipelines/partner_schedules/elpatron_ingest.js",
     "partner:blackpearl": "node pipelines/partner_schedules/blackpearl_ingest.js",
-    "partner:all": "node pipelines/partner_schedules/eldorado_ingest.js && node pipelines/partner_schedules/elpatron_ingest.js && node pipelines/partner_schedules/blackpearl_ingest.js"
+    "partner:all": "node pipelines/partner_schedules/eldorado_ingest.js && node pipelines/partner_schedules/elpatron_ingest.js && node pipelines/partner_schedules/blackpearl_ingest.js",
+    "nws:populate": "node scripts/populate_nws_urls.mjs",
+    "nws:populate:dry-run": "node scripts/populate_nws_urls.mjs --dry-run",
+    "buoy:populate": "node scripts/populate_buoy_urls.mjs",
+    "buoy:populate:dry-run": "node scripts/populate_buoy_urls.mjs --dry-run"
   },
   "dependencies": {
     "axios": "^1.13.5",
     "cheerio": "^1.2.0",
     "dotenv": "^17.2.4",
     "form-data": "^4.0.5",
+    "mysql2": "^3.20.0",
+    "node-cron": "^4.2.1",
     "openai": "^6.21.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "suncalc": "^1.9.0"
   }
 }

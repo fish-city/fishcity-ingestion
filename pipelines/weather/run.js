@@ -1,243 +1,318 @@
-import axios from "axios";
+/**
+ * Weather ingestion pipeline — main runner.
+ *
+ * Fetches weather data from 8 sources for each active location and upserts
+ * into the environmental_data table (same table the backend API reads from).
+ *
+ * Data sources (matches backend cron order):
+ *   1. NOAA Tides (tide predictions)
+ *   2. NWS Hourly (forecast periods)
+ *   3. NOAA Ocean Air Temp (station sensor)
+ *   4. NOAA Water Temp (station sensor)
+ *   5. NOAA Buoy Waves (.txt real-time observations)
+ *   6. NOAA Buoy Spec (.spec spectral data)
+ *   7. Open-Meteo Land Weather (replaces OpenWeather)
+ *   8. Moon Phase (SunCalc, local calculation)
+ *
+ * Usage:
+ *   node pipelines/weather/run.js                           # today only, all locations, DB mode
+ *   node pipelines/weather/run.js --days 10               # today + 9 days forecast, all locations
+ *   node pipelines/weather/run.js --preview               # today only, JSON file (no DB)
+ *   node pipelines/weather/run.js --preview --days 10     # 10-day preview
+ *   node pipelines/weather/run.js 2026-04-07              # specific start date, DB mode
+ *   node pipelines/weather/run.js 2026-04-07 1            # specific date + location ID
+ *   node pipelines/weather/run.js --dry-run               # shows what would upsert, no writes
+ */
+import dotenv from "dotenv";
+dotenv.config();
+
 import fs from "fs/promises";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { endPool } from "../../core/db/pool.js";
+import { loadLocationsFromDb, loadLocationsFromFile, hasValidCoordinates } from "./loadLocations.js";
+import { upsertWeatherInfo } from "./upsert.js";
+
+// Data sources
+import { fetchTides, fetchTidesRange } from "./sources/noaaTides.js";
+import { fetchNwsHourly, fetchNwsAllDays } from "./sources/nwsHourly.js";
+import { fetchOceanAirTemp } from "./sources/noaaOceanAirTemp.js";
+import { fetchWaterTemp } from "./sources/noaaWaterTemp.js";
+import { fetchBuoyWaves } from "./sources/noaaBuoyWaves.js";
+import { fetchBuoySpec } from "./sources/noaaBuoySpec.js";
+import { fetchOpenMeteoLand, fetchOpenMeteoLandRange } from "./sources/openMeteoLand.js";
+import { getMoonPhase, getMoonPhaseRange } from "./sources/moonPhase.js";
+
 const OUT_DIR = path.resolve("runs", "dev_output");
-const LOCATIONS_PATH = path.resolve("reference", "weather_locations.json");
+const CLIENT_TIME_ZONE = "America/Los_Angeles";
 
-function fmtDate(d = new Date()) {
-  return d.toISOString().slice(0, 10);
-}
-function toNum(v, d = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
-function minMax(arr) {
-  const nums = arr.map(Number).filter((n) => Number.isFinite(n));
-  if (!nums.length) return { min: 0, max: 0, current: 0 };
-  return { min: Math.min(...nums), max: Math.max(...nums), current: nums[0] };
-}
-export function degToCardinal(deg) {
-  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-  return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+function fmtDateLocal() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: CLIENT_TIME_ZONE,
+    year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(new Date());
 }
 
-export async function fetchNwsHourly(lat, lon, fetchImpl = axios.get) {
-  const p = await fetchImpl(`https://api.weather.gov/points/${lat},${lon}`, { timeout: 20000, headers: { "User-Agent": "FishCityWeather/1.0" } });
-  const hourlyUrl = p.data?.properties?.forecastHourly;
-  if (!hourlyUrl) return [];
-  const h = await fetchImpl(hourlyUrl, { timeout: 20000, headers: { "User-Agent": "FishCityWeather/1.0" } });
-  const periods = h.data?.properties?.periods || [];
-  return periods.slice(0, 24).map((x) => ({
-    dt: String(x.startTime || "").replace("T", " ").slice(0, 19),
-    icon: x.icon || "",
-    name: x.name || "",
-    number: x.number || 0,
-    dewpoint: x.dewpoint || { value: 0, unitCode: "wmoUnit:degC" },
-    isDaytime: Boolean(x.isDaytime),
-    windSpeed: x.windSpeed || "0 mph",
-    temperature: toNum(x.temperature),
-    shortForecast: x.shortForecast || "",
-    windDirection: x.windDirection || "",
-    temperatureUnit: x.temperatureUnit || "F",
-    detailedForecast: x.detailedForecast || "",
-    relativeHumidity: x.relativeHumidity || { value: 0, unitCode: "wmoUnit:percent" },
-    temperatureTrend: x.temperatureTrend || "",
-    probabilityOfPrecipitation: x.probabilityOfPrecipitation || { value: 0, unitCode: "wmoUnit:percent" }
-  }));
+/**
+ * Generate an array of YYYY-MM-DD strings starting from startDate for `count` days.
+ */
+function generateDates(startDate, count) {
+  const dates = [];
+  for (let i = 0; i < count; i++) {
+    // Use UTC noon to avoid any DST-related date shifts
+    const d = new Date(startDate + "T12:00:00Z");
+    d.setUTCDate(d.getUTCDate() + i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
 }
 
-export async function fetchNoaaTides(stationId, date, fetchImpl = axios.get) {
-  const url = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
-  const params = {
-    product: "predictions",
-    application: "fishcity",
-    begin_date: date.replaceAll("-", ""),
-    end_date: date.replaceAll("-", ""),
-    datum: "MLLW",
-    station: stationId,
-    time_zone: "lst_ldt",
-    units: "english",
-    interval: "h",
-    format: "json"
-  };
-  const r = await fetchImpl(url, { params, timeout: 20000 });
-  return (r.data?.predictions || []).map((x) => ({ t: x.t, v: x.v }));
+/**
+ * Upsert a single source result, with dry-run and preview support.
+ */
+async function handleSourceResult(data, name, locationId, date, options, previewAccumulator) {
+  const { dryRun, preview } = options;
+  if (!data) {
+    console.log(`  - ${name} (no data)`);
+    return;
+  }
+  console.log(`  ✓ ${name}`);
+  if (dryRun) {
+    const { time_stamp, ...fields } = data;
+    const summary = Object.entries(fields).map(([k, v]) =>
+      Array.isArray(v) ? `${k}: ${v.length} entries` : `${k}: ${v}`
+    ).join(", ");
+    console.log(`    [dry-run] would upsert: ${summary}`);
+  } else if (!preview) {
+    await upsertWeatherInfo(locationId, data, date);
+  }
+  if (previewAccumulator) Object.assign(previewAccumulator, data);
 }
 
-export async function fetchOpenMeteo(lat, lon, timezone, fetchImpl = axios.get) {
-  const params = {
-    latitude: lat,
-    longitude: lon,
-    timezone,
-    forecast_days: 1,
-    hourly: [
-      "temperature_2m", "relative_humidity_2m", "dew_point_2m", "apparent_temperature", "pressure_msl",
-      "cloud_cover", "visibility", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m", "uv_index",
-      "weather_code", "sea_surface_temperature", "wave_height", "wave_direction", "wave_period",
-      "swell_wave_height", "swell_wave_direction", "swell_wave_period"
-    ].join(",")
-  };
-  const r = await fetchImpl("https://marine-api.open-meteo.com/v1/marine", { params, timeout: 25000 });
-  return r.data?.hourly || {};
+/**
+ * Process a single location for today only (single-date mode).
+ * All 8 sources fetched; real-time sources naturally return null for non-today dates.
+ */
+async function processLocation(location, date, options = {}) {
+  const locationId = location.location_id;
+  const locationName = location.location_name || `ID:${locationId}`;
+  const tz = location.timezone || CLIENT_TIME_ZONE;
+
+  // Parse and validate coordinates — Open-Meteo requires valid non-zero lat/lon
+  const coordsOk = hasValidCoordinates(location);
+  const lat = coordsOk ? parseFloat(location.open_weather_latitude ?? location.lat) : null;
+  const lon = coordsOk ? parseFloat(location.open_weather_longitude ?? location.lon) : null;
+
+  console.log(`\n--- ${locationName} (${locationId}) — ${date} ---`);
+
+  const sources = [
+    { name: "Tide Data",               fetch: () => fetchTides(location.noaa_tide_station_id, date) },
+    { name: "NWS Weather",             fetch: () => fetchNwsHourly(location.nws_weather_url, date) },
+    { name: "Ocean Air Temp",          fetch: () => fetchOceanAirTemp(location.noaa_ocean_air_temp_station_id, date) },
+    { name: "Water Temperature",       fetch: () => fetchWaterTemp(location.noaa_water_temp_station_id, date) },
+    { name: "Wave Height",             fetch: () => fetchBuoyWaves(location.noaa_wave_height_url, date) },
+    { name: "Wave Spec",               fetch: () => fetchBuoySpec(location.noaa_wave_height_spec_url, date) },
+    { name: "Land Weather (Open-Meteo)", fetch: () => coordsOk ? fetchOpenMeteoLand(lat, lon, tz, date) : Promise.resolve(null) },
+    { name: "Moon Phase",              fetch: () => Promise.resolve(getMoonPhase(date)) }
+  ];
+
+  const preview = {};
+  for (const source of sources) {
+    try {
+      const data = await source.fetch();
+      await handleSourceResult(data, source.name, locationId, date, options, options.preview ? preview : null);
+    } catch (error) {
+      console.error(`  ✗ ${source.name}: ${error.message}`);
+    }
+  }
+  return preview;
 }
 
-export function buildFromOpenMeteo(hourly) {
-  const t = hourly.time || [];
-  const idx = (k) => hourly[k] || [];
+/**
+ * Process a single location for a range of dates (multi-day forecast mode).
+ *
+ * Efficiency strategy:
+ *   - Forecast sources (tides, NWS, Open-Meteo, moon) → one API call each for the full range
+ *   - Real-time sources (ocean air temp, water temp, buoy) → today only, one API call each
+ *
+ * Each date is upserted independently so partial failures don't block other dates.
+ */
+async function processLocationRange(location, dates, options = {}) {
+  const locationId = location.location_id;
+  const locationName = location.location_name || `ID:${locationId}`;
+  const tz = location.timezone || CLIENT_TIME_ZONE;
+  const today = dates[0];
+  const lastDate = dates[dates.length - 1];
 
-  const weatherLandInfo = t.map((dt, i) => ({
-    dt: dt.replace("T", " "),
-    ux: Math.floor(new Date(dt).getTime() / 1000),
-    uvi: toNum(idx("uv_index")[i]),
-    temp: toNum(idx("temperature_2m")[i]),
-    clouds: Math.round(toNum(idx("cloud_cover")[i])),
-    weather: [{ id: toNum(idx("weather_code")[i]), icon: "", main: "", description: "" }],
-    humidity: Math.round(toNum(idx("relative_humidity_2m")[i])),
-    pressure: Math.round(toNum(idx("pressure_msl")[i])),
-    wind_deg: Math.round(toNum(idx("wind_direction_10m")[i])),
-    dew_point: toNum(idx("dew_point_2m")[i]),
-    feels_like: toNum(idx("apparent_temperature")[i]),
-    visibility: Math.round(toNum(idx("visibility")[i])),
-    wind_speed: toNum(idx("wind_speed_10m")[i]),
-    wind_gust: toNum(idx("wind_gusts_10m")[i])
-  }));
+  // Parse and validate coordinates — Open-Meteo requires valid non-zero lat/lon
+  const coordsOk = hasValidCoordinates(location);
+  const lat = coordsOk ? parseFloat(location.open_weather_latitude ?? location.lat) : null;
+  const lon = coordsOk ? parseFloat(location.open_weather_longitude ?? location.lon) : null;
 
-  const waterTempInfo = t.map((dt, i) => ({ f: "0,0,0", t: dt.replace("T", " "), v: String(toNum(idx("sea_surface_temperature")[i])) }));
+  console.log(`\n--- ${locationName} (${locationId}) — ${today} to ${lastDate} (${dates.length} days) ---`);
+  if (!coordsOk) console.log(`  [skip] No valid coordinates — Open-Meteo will be skipped`);
 
-  const waveInfo = t.map((dt, i) => ({
-    s: String(toNum(idx("wave_period")[i])),
-    t: dt.replace("T", " "),
-    v: String(toNum(idx("wave_height")[i])),
-    dpd: String(toNum(idx("wave_period")[i])),
-    gst: String(toNum(idx("wind_gusts_10m")[i])),
-    mwd: String(Math.round(toNum(idx("wave_direction")[i]))),
-    vis: "0",
-    atmp: String(toNum(idx("temperature_2m")[i])),
-    dewp: String(toNum(idx("dew_point_2m")[i])),
-    pres: String(toNum(idx("pressure_msl")[i])),
-    ptdy: "0",
-    tide: "0",
-    wdir: String(Math.round(toNum(idx("wind_direction_10m")[i]))),
-    wspd: String(toNum(idx("wind_speed_10m")[i])),
-    wtmp: String(toNum(idx("sea_surface_temperature")[i]))
-  }));
+  // ── Bulk fetch forecast sources (one API call each) ──────────────────────────
+  const openMeteoPromise = coordsOk
+    ? fetchOpenMeteoLandRange(lat, lon, tz, dates).catch((e) => {
+        console.error(`  ✗ Open-Meteo Range: ${e.message}`); return {};
+      })
+    : Promise.resolve({});
 
-  const waveInfoSpec = t.map((dt, i) => {
-    const swdDeg = Math.round(toNum(idx("swell_wave_direction")[i]));
-    return {
-      s: String(toNum(idx("swell_wave_period")[i])),
-      t: dt.replace("T", " "),
-      v: String(toNum(idx("swell_wave_height")[i])),
-      apd: String(toNum(idx("wave_period")[i])),
-      mwd: String(swdDeg),
-      swd: degToCardinal(swdDeg),
-      wwd: degToCardinal(Math.round(toNum(idx("wave_direction")[i]))),
-      wwh: String(toNum(idx("wave_height")[i])),
-      wwp: String(toNum(idx("wave_period")[i])),
-      wvht: String(toNum(idx("wave_height")[i])),
-      steepness: "SWELL"
-    };
-  });
-
-  return { weatherLandInfo, waterTempInfo, waveInfo, waveInfoSpec };
-}
-
-export async function buildLocationPayload(location, date, fetchImpl = axios.get) {
-  const [nws, tides, open] = await Promise.all([
-    fetchNwsHourly(location.lat, location.lon, fetchImpl).catch(() => []),
-    fetchNoaaTides(location.noaa_tide_station_id, date, fetchImpl).catch(() => []),
-    fetchOpenMeteo(location.lat, location.lon, location.timezone, fetchImpl).catch(() => ({}))
+  const [tidesMap, nwsMap, openMeteoMap] = await Promise.all([
+    fetchTidesRange(location.noaa_tide_station_id, today, lastDate).catch((e) => {
+      console.error(`  ✗ Tide Range: ${e.message}`); return {};
+    }),
+    fetchNwsAllDays(location.nws_weather_url).catch((e) => {
+      console.error(`  ✗ NWS All Days: ${e.message}`); return {};
+    }),
+    openMeteoPromise
   ]);
 
-  const { weatherLandInfo, waterTempInfo, waveInfo, waveInfoSpec } = buildFromOpenMeteo(open);
+  const moonMap = getMoonPhaseRange(dates);
 
-  const tideStats = minMax(tides.map((x) => x.v));
-  const landStats = minMax(weatherLandInfo.map((x) => x.temp));
-  const nwsStats = minMax(nws.map((x) => x.temperature));
-  const windStats = minMax(weatherLandInfo.map((x) => x.wind_speed));
-  const waterStats = minMax(waterTempInfo.map((x) => x.v));
-  const waveStats = minMax(waveInfo.map((x) => x.v));
-  const swellStats = minMax(waveInfoSpec.map((x) => x.v));
+  // Log bulk fetch summary
+  console.log(`  Tides:      ${Object.keys(tidesMap).length} day(s)`);
+  console.log(`  NWS:        ${Object.keys(nwsMap).length} day(s)`);
+  console.log(`  Open-Meteo: ${Object.keys(openMeteoMap).length} day(s)`);
+  console.log(`  Moon Phase: ${Object.keys(moonMap).length} day(s)`);
 
-  return {
-    location_id: location.location_id,
-    location_name: location.location_name,
-    noaa_tide_station_id: location.noaa_tide_station_id,
-    date,
-    moon_phase: "",
-    moon_phase_name: "",
-    tide_info_count: tides.length,
-    tide_height: tideStats.current,
-    tide_min: tideStats.min,
-    tide_max: tideStats.max,
-    weather_ocean_info_count: waterTempInfo.length,
-    weather_ocean_temp: waterStats.current,
-    weather_ocean_min: waterStats.min,
-    weather_ocean_max: waterStats.max,
-    weather_land_info_count: weatherLandInfo.length,
-    weather_land_temp: landStats.current,
-    weather_land_temp_min: landStats.min,
-    weather_land_temp_max: landStats.max,
-    weather_nws_info_count: nws.length,
-    weather_nws_temp: nwsStats.current,
-    weather_nws_temp_min: nwsStats.min,
-    weather_nws_temp_max: nwsStats.max,
-    weather_nws_wind_speed: windStats.current,
-    weather_nws_wind_speed_min: windStats.min,
-    weather_nws_wind_speed_max: windStats.max,
-    wind_speed: windStats.current,
-    wind_speed_min: windStats.min,
-    wind_speed_max: windStats.max,
-    wind_degree: toNum(weatherLandInfo[0]?.wind_deg),
-    wind_degree_min: 0,
-    wind_degree_max: 359,
-    water_temp_info_count: waterTempInfo.length,
-    water_temp: waterStats.current,
-    water_temp_min: waterStats.min,
-    water_temp_max: waterStats.max,
-    wave_info_count: waveInfo.length,
-    wave_height: waveStats.current,
-    wave_lowest_height: waveStats.min,
-    wave_highest_height: waveStats.max,
-    wave_info_count_spec: waveInfoSpec.length,
-    wave_height_spec: swellStats.current,
-    wave_lowest_height_spec: swellStats.min,
-    wave_highest_height_spec: swellStats.max,
-    tide_info: tides,
-    weather_ocean_info: waterTempInfo,
-    weather_land_info: weatherLandInfo,
-    weather_nws_info: nws,
-    water_temp_info: waterTempInfo,
-    wave_info: waveInfo,
-    wave_info_spec: waveInfoSpec,
-    created_at: new Date().toISOString().replace("T", " ").slice(0, 19),
-    updated_at: new Date().toISOString().replace("T", " ").slice(0, 19)
-  };
+  // ── Real-time sources (today only) ───────────────────────────────────────────
+  const [oceanAirTemp, waterTemp, buoyWaves, buoySpec] = await Promise.allSettled([
+    fetchOceanAirTemp(location.noaa_ocean_air_temp_station_id, today),
+    fetchWaterTemp(location.noaa_water_temp_station_id, today),
+    fetchBuoyWaves(location.noaa_wave_height_url, today),
+    fetchBuoySpec(location.noaa_wave_height_spec_url, today)
+  ]).then((results) => results.map((r) => r.value ?? null));
+
+  const realtimeSources = [
+    { name: "Ocean Air Temp",    data: oceanAirTemp },
+    { name: "Water Temperature", data: waterTemp },
+    { name: "Wave Height",       data: buoyWaves },
+    { name: "Wave Spec",         data: buoySpec }
+  ];
+
+  console.log(`\n  [${today}] — real-time sources:`);
+  for (const { name, data } of realtimeSources) {
+    await handleSourceResult(data, name, locationId, today, options, null);
+  }
+
+  // ── Upsert each date's forecast data ─────────────────────────────────────────
+  const forecastMaps = [
+    { name: "Tide Data",                map: tidesMap },
+    { name: "NWS Weather",              map: nwsMap },
+    { name: "Land Weather (Open-Meteo)", map: openMeteoMap },
+    { name: "Moon Phase",               map: moonMap }
+  ];
+
+  for (const date of dates) {
+    const hasAny = forecastMaps.some(({ map }) => map[date]);
+    if (!hasAny) continue;
+    console.log(`\n  [${date}]:`);
+    for (const { name, map } of forecastMaps) {
+      await handleSourceResult(map[date] ?? null, name, locationId, date, options, null);
+    }
+  }
 }
 
-export async function runWeatherPreview({ date = fmtDate(), locationId = null, fetchImpl = axios.get } = {}) {
-  const requestedLocationId = locationId != null ? Number(locationId) : null;
-  const locations = JSON.parse(await fs.readFile(LOCATIONS_PATH, "utf8"));
-  const chosen = requestedLocationId ? locations.filter((x) => x.location_id === requestedLocationId) : locations;
+/**
+ * Main entry point — run weather ingestion for all locations.
+ *
+ * @param {object} options
+ * @param {string}  options.date      - YYYY-MM-DD start date (default: today in Pacific time)
+ * @param {number}  options.days      - Number of days to fetch (1 = today only, 10 = 10-day forecast)
+ * @param {number|null} options.locationId - filter to single location
+ * @param {boolean} options.preview   - write JSON file instead of DB
+ * @param {boolean} options.dryRun    - log what would happen, no writes
+ */
+export async function runWeather({ date, days = 1, locationId = null, preview = false, dryRun = false } = {}) {
+  // Default date to today in Pacific time
+  if (!date) date = fmtDateLocal();
 
-  const out = [];
-  for (const loc of chosen) out.push(await buildLocationPayload(loc, date, fetchImpl));
+  const dates = generateDates(date, days);
+  const mode = dryRun ? "DRY-RUN" : preview ? "PREVIEW" : "DB";
+  const rangeLabel = days > 1 ? ` → ${dates[dates.length - 1]} (${days} days)` : "";
+  console.log(`\n[weather] Starting (${mode}) — date: ${date}${rangeLabel}`);
 
-  await fs.mkdir(OUT_DIR, { recursive: true });
-  const outPath = path.join(OUT_DIR, "weather_payload_preview.json");
-  await fs.writeFile(outPath, JSON.stringify({ generated_at: new Date().toISOString(), data: out }, null, 2));
-  return { outPath, count: out.length };
+  let locations;
+  if (preview || dryRun) {
+    // Preview and dry-run modes don't require DB — use static file if DB unavailable
+    try {
+      locations = await loadLocationsFromDb();
+    } catch {
+      console.log("[weather] DB not available, falling back to static locations file.");
+      locations = await loadLocationsFromFile();
+    }
+  } else {
+    locations = await loadLocationsFromDb();
+  }
+
+  if (locationId != null) {
+    const filtered = locations.filter((x) => x.location_id === Number(locationId));
+    if (filtered.length === 0) {
+      console.error(`[weather] Location ${locationId} not found.`);
+      return { count: 0 };
+    }
+    locations = filtered;
+  }
+
+  const allResults = [];
+
+  for (const loc of locations) {
+    if (days > 1) {
+      await processLocationRange(loc, dates, { dryRun, preview });
+      allResults.push({ location_id: loc.location_id, location_name: loc.location_name });
+    } else {
+      const result = await processLocation(loc, date, { dryRun, preview });
+      allResults.push({ location_id: loc.location_id, location_name: loc.location_name, ...result });
+    }
+  }
+
+  // In preview mode, write output to JSON file
+  if (preview) {
+    await fs.mkdir(OUT_DIR, { recursive: true });
+    const outPath = path.join(OUT_DIR, "weather_payload_preview.json");
+    await fs.writeFile(outPath, JSON.stringify({
+      generated_at: new Date().toISOString(),
+      date_range: { start: dates[0], end: dates[dates.length - 1], days },
+      data: allResults
+    }, null, 2));
+    console.log(`\n[weather] Preview saved: ${outPath}`);
+    return { outPath, count: allResults.length };
+  }
+
+  // Close DB pool when running in DB mode
+  if (!preview && !dryRun) {
+    await endPool();
+  }
+
+  console.log(`\n[weather] Done — ${allResults.length} location(s) processed.`);
+  return { count: allResults.length };
 }
 
+// --- CLI ---
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const date = process.argv[2] || fmtDate();
-  const locationId = process.argv[3] ? Number(process.argv[3]) : null;
-  runWeatherPreview({ date, locationId })
-    .then(({ outPath, count }) => console.log(`Weather preview saved: ${outPath} (${count} location(s))`))
+  const args = process.argv.slice(2);
+  const preview = args.includes("--preview");
+  const dryRun = args.includes("--dry-run");
+
+  // Parse --days N
+  const daysIdx = args.findIndex((a) => a === "--days");
+  const days = daysIdx !== -1 ? Math.min(Math.max(1, Number(args[daysIdx + 1]) || 1), 16) : 1;
+
+  // Strip flags to get positional args
+  const positional = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--days");
+  const date = positional[0] || null;
+  const locationId = positional[1] ? Number(positional[1]) : null;
+
+  runWeather({ date, days, locationId, preview, dryRun })
+    .then(({ count, outPath }) => {
+      if (outPath) console.log(`Weather preview: ${outPath} (${count} location(s))`);
+    })
     .catch((err) => {
-      console.error(err.message);
+      console.error("[weather] Fatal:", err.message);
       process.exitCode = 1;
-    });
+    })
+    .finally(() => endPool().catch(() => {}));
 }

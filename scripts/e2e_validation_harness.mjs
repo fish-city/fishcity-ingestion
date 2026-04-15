@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { extractReportLinks } from "../pipelines/fishing_reports/ingest.js";
-import { buildLocationPayload } from "../pipelines/weather/run.js";
+import { buildLocationPayload } from "../pipelines/weather/preview.js";
 import { parseOllamaGenerateResponse } from "../core/ai/providers/ollama/adapter.js";
 
 const ROOT = path.resolve(".");
