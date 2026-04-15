@@ -282,11 +282,6 @@ export async function runWeather({ date, days = 1, locationId = null, preview = 
     return { outPath, count: allResults.length };
   }
 
-  // Close DB pool when running in DB mode
-  if (!preview && !dryRun) {
-    await endPool();
-  }
-
   console.log(`\n[weather] Done — ${allResults.length} location(s) processed.`);
   return { count: allResults.length };
 }
