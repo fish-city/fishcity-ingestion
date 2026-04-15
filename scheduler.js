@@ -156,10 +156,10 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify(payload, null, 2));
   }
 
-  // POST /run/:job — manually trigger a job
+  // GET or POST /run/:job — manually trigger a job
   // Optional: protect with ?key=YOUR_TRIGGER_KEY if TRIGGER_KEY env var is set
   const match = url.pathname.match(/^\/run\/([a-z-]+)$/);
-  if (match && req.method === "POST") {
+  if (match && (req.method === "GET" || req.method === "POST")) {
     if (TRIGGER_KEY && url.searchParams.get("key") !== TRIGGER_KEY) {
       res.writeHead(401, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ error: "Unauthorized" }));
