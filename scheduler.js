@@ -129,8 +129,19 @@ console.log(`[scheduler] Next weather run: top of next hour`);
 // Azure App Service requires an HTTP listener to consider the instance healthy.
 // This also exposes a /health endpoint with job status for monitoring.
 
+// Map of trigger-able jobs by URL slug
+const triggerableJobs = {
+  "weather":          weatherToday,
+  "weather-forecast": weatherForecast,
+};
+
+const TRIGGER_KEY = process.env.TRIGGER_KEY || "";
+
 const server = http.createServer((req, res) => {
-  if (req.url === "/health" || req.url === "/") {
+  const url = new URL(req.url, `http://localhost`);
+
+  // GET /health — status of all jobs
+  if ((url.pathname === "/health" || url.pathname === "/") && req.method === "GET") {
     const payload = {
       status: "ok",
       uptime: Math.floor(process.uptime()),
@@ -142,11 +153,31 @@ const server = http.createServer((req, res) => {
       )
     };
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(payload, null, 2));
-  } else {
-    res.writeHead(404);
-    res.end("Not found");
+    return res.end(JSON.stringify(payload, null, 2));
   }
+
+  // POST /run/:job — manually trigger a job
+  // Optional: protect with ?key=YOUR_TRIGGER_KEY if TRIGGER_KEY env var is set
+  const match = url.pathname.match(/^\/run\/([a-z-]+)$/);
+  if (match && req.method === "POST") {
+    if (TRIGGER_KEY && url.searchParams.get("key") !== TRIGGER_KEY) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Unauthorized" }));
+    }
+    const jobName = match[1];
+    const job = triggerableJobs[jobName];
+    if (!job) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: `Unknown job: ${jobName}`, available: Object.keys(triggerableJobs) }));
+    }
+    // Fire and forget — don't await so the response returns immediately
+    job().catch((e) => logJob(jobName, `Manual trigger error: ${e.message}`));
+    res.writeHead(202, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ triggered: jobName, status: "started" }));
+  }
+
+  res.writeHead(404);
+  res.end("Not found");
 });
 
 server.listen(PORT, () => {
