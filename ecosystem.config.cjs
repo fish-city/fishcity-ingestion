@@ -11,7 +11,6 @@ module.exports = {
       name: "fc-report-ingestion",
       script: "sh",
       args: "-c 'node pipelines/fishing_reports/ingest.js && node pipelines/fishing_reports/push.js'",
-      cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       cron_restart: "0 6,12,18 * * *",
       autorestart: false,          // Only run on cron, don't restart on exit
       watch: false,
@@ -31,7 +30,6 @@ module.exports = {
     {
       name: "fc-eldorado-notify",
       script: "pipelines/partner_schedules/eldorado_ingest.js",
-      cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       cron_restart: "0 7-21 * * *",
       autorestart: false,
       watch: false,
@@ -51,7 +49,6 @@ module.exports = {
     {
       name: "fc-elpatron-notify",
       script: "pipelines/partner_schedules/elpatron_ingest.js",
-      cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       cron_restart: "0 7-21 * * *",
       autorestart: false,
       watch: false,
@@ -71,7 +68,6 @@ module.exports = {
     {
       name: "fc-blackpearl-notify",
       script: "pipelines/partner_schedules/blackpearl_ingest.js",
-      cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       cron_restart: "0 7-21 * * *",
       autorestart: false,
       watch: false,
@@ -91,7 +87,6 @@ module.exports = {
     {
       name: "fc-dashboard",
       script: "dashboard/serve.js",
-      cwd: "/Users/openclaw/openclaw/fishcity/workspaces/pm/fishcity-ingestion",
       autorestart: true,
       watch: false,
       max_memory_restart: "128M",
