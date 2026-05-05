@@ -219,15 +219,18 @@ async function sendPush(token, { title, body, deepLink, boatId, partner, stage, 
 // ── Analytics logging ────────────────────────────────────────────
 
 async function logAnalyticsEvent(token, { stage, tripId, boatId, partner, attempted, delivered, title, body, deepLink, totalChanges, trip }) {
-  const { API_BASE_URL } = process.env;
-  if (!API_BASE_URL) return;
+  const { API_BASE_URL, ANALYTICS_EVENTS_PATH } = process.env;
+  // Gated: only POST when both base URL and a path are configured.
+  // Backend endpoint for server-side push-sent events doesn't exist yet;
+  // sends are still recorded locally in state/notification_send_log.json.
+  if (!API_BASE_URL || !ANALYTICS_EVENTS_PATH) return;
 
   try {
     const eventId = crypto.randomUUID();
     const now = new Date();
     const pacificHour = parseInt(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }), 10);
 
-    await axios.post(`${API_BASE_URL}/api/v1/dev/el-dorado-notifications/analytics/events`, {
+    await axios.post(`${API_BASE_URL}${ANALYTICS_EVENTS_PATH}`, {
       notification_event_id: eventId,
       analytics_event_type: "push_sent",
       notification_type: stage,
