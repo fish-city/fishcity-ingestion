@@ -32,8 +32,10 @@ const config = {
 
     console.log(`[blackpearl] Trips: ${current.length} | Changes: ${changes.length}`);
     console.log(`[blackpearl] Notifications:`, notifyStats);
+    console.log(`[blackpearl] RESULT trips=${current.length} changes=${changes.length} sent=${notifyStats.sent} reminders=${notifyStats.reminders} deferred=${notifyStats.deferred} throttled=${notifyStats.throttled} skipped=${notifyStats.skipped} errors=${notifyStats.errors}`);
   } catch (err) {
     console.error(`[blackpearl] Fatal: ${err.message}`);
+    console.log(`[blackpearl] RESULT trips=0 changes=0 sent=0 reminders=0 deferred=0 throttled=0 skipped=0 errors=1`);
     process.exitCode = 1;
   }
 })();

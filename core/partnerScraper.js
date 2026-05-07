@@ -63,6 +63,17 @@ export function computeChanges(prevRows, currRows) {
     if (nowFew && spotsDecreased) {
       changes.push({ type: "FEW_SPOTS", trip_id: tripId, was, now });
     }
+
+    // SPOTS_REOPENED: trip was at low availability (≤5) and gained spots back.
+    // This is a cancellation signal — followers who missed the FILLING_UP window
+    // get a second shot. Distinct from OPEN_TRIP (full → open) because the trip
+    // was never fully sold out; only useful when the gain meaningfully changes
+    // the picture, so we require ≥1 spot delta and the prior state was ≤5.
+    const wasFew = was.status === "open" && Number.isFinite(was.open_spots) && was.open_spots > 0 && was.open_spots <= 5;
+    const spotsIncreased = Number.isFinite(was.open_spots) && Number.isFinite(now.open_spots) && now.open_spots > was.open_spots;
+    if (wasFew && spotsIncreased && now.status === "open") {
+      changes.push({ type: "SPOTS_REOPENED", trip_id: tripId, was, now });
+    }
   }
 
   for (const [tripId, was] of prev.entries()) {
@@ -264,6 +275,29 @@ export async function writeOutputFiles(partner, current, changes, activity) {
   return { snapshotPath, changesPath };
 }
 
+// ── Run-staleness check ───────────────────────────────────────────────────────
+//
+// PM2 fires this script on cron (hourly). If the system slept, the daemon died,
+// or the previous run errored before saveCurrentState, the state file mtime
+// reveals the gap. Warn (don't fail) so logs flag missed windows.
+
+const STALE_AFTER_MIN = 90; // hourly cron + slack — anything older is suspicious
+
+export async function checkRunStaleness(partner) {
+  const statePath = path.join(STATE_DIR, `${partner}_last_snapshot.json`);
+  try {
+    const stat = await fs.stat(statePath);
+    const ageMin = (Date.now() - stat.mtimeMs) / 60000;
+    if (ageMin > STALE_AFTER_MIN) {
+      console.warn(`[${partner}] ⚠ Last successful run was ${ageMin.toFixed(0)} min ago (threshold ${STALE_AFTER_MIN} min) — cron may have missed window(s)`);
+    }
+    return { ageMin, stale: ageMin > STALE_AFTER_MIN };
+  } catch {
+    // First run — no state file yet, not stale
+    return { ageMin: null, stale: false };
+  }
+}
+
 // ── Main orchestrator ─────────────────────────────────────────────────────────
 
 /**
@@ -279,6 +313,8 @@ export async function writeOutputFiles(partner, current, changes, activity) {
  */
 export async function scrapePartnerSchedule(config) {
   const { url, bookingBase, partner, boatId, defaultPollMinutes = 240 } = config;
+
+  await checkRunStaleness(partner);
 
   const [current, activity] = await Promise.all([
     fetchTrips(url, bookingBase, partner),
