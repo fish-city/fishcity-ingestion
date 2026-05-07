@@ -37,8 +37,10 @@ const config = {
 
     console.log(`[eldorado] Trips: ${current.length} | Changes: ${changes.length}`);
     console.log(`[eldorado] Notifications:`, notifyStats);
+    console.log(`[eldorado] RESULT trips=${current.length} changes=${changes.length} sent=${notifyStats.sent} reminders=${notifyStats.reminders} deferred=${notifyStats.deferred} throttled=${notifyStats.throttled} skipped=${notifyStats.skipped} errors=${notifyStats.errors}`);
   } catch (err) {
     console.error(`[eldorado] Fatal: ${err.message}`);
+    console.log(`[eldorado] RESULT trips=0 changes=0 sent=0 reminders=0 deferred=0 throttled=0 skipped=0 errors=1`);
     process.exitCode = 1;
   }
 })();

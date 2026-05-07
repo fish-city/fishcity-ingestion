@@ -33,13 +33,17 @@ export const STAGES = {
   LAST_CHANCE: "LAST_CHANCE",
   SOLD_OUT: "SOLD_OUT",
   REOPENED: "REOPENED",
+  SPOTS_REOPENED: "SPOTS_REOPENED",
   REMINDER: "REMINDER"
 };
 
-// Priority ordering: higher = more important
+// Priority ordering: higher = more important. SPOTS_REOPENED sits below
+// REOPENED (full→open is a stronger FOMO signal) but above FILLING_UP and
+// LAST_CHANCE because cancellations on hot trips are time-sensitive.
 const STAGE_PRIORITY = {
   [STAGES.REOPENED]: 6,
   [STAGES.SOLD_OUT]: 5,
+  [STAGES.SPOTS_REOPENED]: 4.5,
   [STAGES.LAST_CHANCE]: 4,
   [STAGES.FILLING_UP]: 3,
   [STAGES.REMINDER]: 2,
@@ -57,6 +61,8 @@ export function classifyChange(change) {
       return STAGES.SOLD_OUT;
     case "FEW_SPOTS":
       return STAGES.FILLING_UP;
+    case "SPOTS_REOPENED":
+      return STAGES.SPOTS_REOPENED;
     case "NEW_TRIP":
       return STAGES.PUBLISHED;
     default:
@@ -128,6 +134,10 @@ export function parseDepartureDate(departureText) {
   return null;
 }
 
+// Reminder window: how close to the computed reminder time the cron must run.
+// Hourly cron + ~2s startup latency means strict equality fails — use ±45 min.
+const REMINDER_WINDOW_MS = 45 * 60 * 1000;
+
 /**
  * Determine the smart reminder time for a trip departure.
  *
@@ -163,8 +173,12 @@ export function computeReminderTime(departureDate) {
     reminderTime.setHours(8, 0, 0, 0);
   }
 
-  // Don't send if the reminder window already passed
-  if (reminderTime <= now) return null;
+  // Don't send if the reminder window has fully passed (>45 min ago).
+  // Cron fires at hh:00:00 but the JS evaluates `now` ~1-2s later, so a strict
+  // `reminderTime <= now` would always reject the on-the-hour reminder. The
+  // ±45 min window in isReminderWindowNow handles edge timing — keep this
+  // guard consistent with that window so behavior is predictable.
+  if (reminderTime.getTime() < now.getTime() - REMINDER_WINDOW_MS) return null;
 
   // Don't send if departure is more than 7 days out (too early)
   const daysOut = (dep - now) / (1000 * 60 * 60 * 24);
@@ -175,13 +189,13 @@ export function computeReminderTime(departureDate) {
 
 /**
  * Check if now is the right time to send a reminder for a given departure.
- * Returns true if we're within ±30 minutes of the computed reminder time.
+ * Returns true if we're within REMINDER_WINDOW_MS of the computed reminder time.
  */
 export function isReminderWindowNow(departureDate) {
   const target = computeReminderTime(departureDate);
   if (!target) return false;
   const diff = Math.abs(Date.now() - target.getTime());
-  return diff <= 45 * 60 * 1000; // ±45 minute window (safe for hourly polling)
+  return diff <= REMINDER_WINDOW_MS;
 }
 
 // ── Notification templates (CRM-style copy) ─────────────────────
@@ -260,6 +274,13 @@ export function buildLifecycleMessage(stage, trip) {
         title: `${boat}: Spot Opened`,
         body: `${departure}${departure && tripType ? " - " : ""}${tripType} - Was Sold Out!`,
         urgency: "critical"
+      };
+
+    case STAGES.SPOTS_REOPENED:
+      return {
+        title: `${boat}: Spots Just Opened`,
+        body: `${departure}${departure && tripType ? " - " : ""}${tripType} - ${spots != null ? `${spots} Spots Now Open` : "More Availability"}`,
+        urgency: "high"
       };
 
     default:
