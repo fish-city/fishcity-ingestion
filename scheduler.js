@@ -12,6 +12,7 @@
  *   Partner: El Dorado   — every hour 7:00 AM – 9:00 PM
  *   Partner: El Patron   — every hour 7:00 AM – 9:00 PM
  *   Partner: Black Pearl — every hour 7:00 AM – 9:00 PM
+ *   Partner: Freedom     — every hour 7:00 AM – 9:00 PM
  *
  * Environment variables (set in Azure App Service → Configuration):
  *   PORT               — HTTP port (Azure sets this automatically)
@@ -102,6 +103,10 @@ const partnerElpatron = makeJob("partner:elpatron", async () => {
 const partnerBlackpearl = makeJob("partner:blackpearl", async () => {
   await runScript(new URL("./pipelines/partner_schedules/blackpearl_ingest.js", import.meta.url).pathname);
 });
+
+const partnerFreedom = makeJob("partner:freedom", async () => {
+  await runScript(new URL("./pipelines/partner_schedules/freedom_ingest.js", import.meta.url).pathname);
+});
 */
 
 // ── Cron Schedules ────────────────────────────────────────────────────────────
@@ -121,6 +126,7 @@ cron.schedule("0 2 * * *", weatherForecast, opts);
 //cron.schedule("0 7-21 * * *", partnerEldorado,    opts);
 //cron.schedule("0 7-21 * * *", partnerElpatron,    opts);
 //cron.schedule("0 7-21 * * *", partnerBlackpearl,  opts);
+//cron.schedule("0 7-21 * * *", partnerFreedom,     opts);
 
 console.log(`[scheduler] All jobs scheduled (TZ: ${CRON_TZ})`);
 console.log(`[scheduler] Next weather run: top of next hour`);

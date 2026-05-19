@@ -152,13 +152,14 @@ export async function fetchFishCountActivity(boatId, defaultPollMinutes = 240) {
 // Some sites (El Dorado) also have td.trip-cell[data-trip-id], others
 // (Oceanside) do not — so we use a unified approach based on .trip-info.
 
-export async function fetchTrips(url, bookingBase, partner) {
+export async function fetchTrips(url, bookingBase, partner, boatFilter = null) {
   const res = await axios.get(url, {
     timeout: 25000,
     headers: { "User-Agent": "FishCityPartnerIngest/1.0" }
   });
   const $ = cheerio.load(res.data);
   const rows = [];
+  const normalizedFilter = boatFilter ? String(boatFilter).trim().toLowerCase() : null;
 
   // Strategy: find every <tr> that contains a .trip-info element.
   // fishingreservations.net nests Bootstrap grid divs (.trip-info, .trip-depart,
@@ -199,6 +200,11 @@ export async function fetchTrips(url, bookingBase, partner) {
     const boat_name = clean(boatStrong.text());
     const fullInfo = clean($info.text());
     const trip_name = clean(fullInfo.replace(boat_name, ""));
+
+    // Multi-boat schedule pages (e.g., 22nd Street Landing) list 8+ boats on one
+    // page. boatFilter restricts to a single boat by exact (case-insensitive) name
+    // match so state/snapshots/changes only ever contain that boat's trips.
+    if (normalizedFilter && boat_name.toLowerCase() !== normalizedFilter) return;
 
     // ── Extract remaining fields ────────────────────────────────
     const spotsRaw = clean($tr.find(".trip-spots").first().text());
@@ -309,15 +315,16 @@ export async function checkRunStaleness(partner) {
  * @param {string} config.partner          - Partner slug (eldorado, elpatron, oceanside)
  * @param {number} config.boatId           - FC boat_id for fish activity lookup
  * @param {number} [config.defaultPollMinutes=240] - Fallback polling interval
+ * @param {string} [config.boatFilter]     - Restrict to one boat name (multi-boat pages)
  * @returns {{ current, previous, changes, activity, snapshotPath, changesPath }}
  */
 export async function scrapePartnerSchedule(config) {
-  const { url, bookingBase, partner, boatId, defaultPollMinutes = 240 } = config;
+  const { url, bookingBase, partner, boatId, defaultPollMinutes = 240, boatFilter = null } = config;
 
   await checkRunStaleness(partner);
 
   const [current, activity] = await Promise.all([
-    fetchTrips(url, bookingBase, partner),
+    fetchTrips(url, bookingBase, partner, boatFilter),
     fetchFishCountActivity(boatId, defaultPollMinutes)
   ]);
 
