@@ -60,6 +60,7 @@
     <option value="eldorado">El Dorado</option>
     <option value="elpatron">El Patron</option>
     <option value="blackpearl">Black Pearl</option>
+    <option value="freedom">Freedom</option>
   </select>
   <button class="refresh-btn" onclick="loadData()">Refresh</button>
   <span id="lastUpdate" class="timestamp"></span>
@@ -111,8 +112,8 @@ const STAGE_COLORS = {
   PUBLISHED: "#38bdf8", FILLING_UP: "#fbbf24", LAST_CHANCE: "#f87171",
   SOLD_OUT: "#a78bfa", REOPENED: "#4ade80", REMINDER: "#fb923c"
 };
-const PARTNER_COLORS = { eldorado: "#38bdf8", elpatron: "#fbbf24", blackpearl: "#a78bfa" };
-const PARTNER_LABELS = { eldorado: "El Dorado", elpatron: "El Patron", blackpearl: "Black Pearl" };
+const PARTNER_COLORS = { eldorado: "#38bdf8", elpatron: "#fbbf24", blackpearl: "#a78bfa", freedom: "#14b8a6" };
+const PARTNER_LABELS = { eldorado: "El Dorado", elpatron: "El Patron", blackpearl: "Black Pearl", freedom: "Freedom" };
 
 function stageBadge(stage) {
   const cls = { PUBLISHED: "published", FILLING_UP: "filling", SOLD_OUT: "soldout", REOPENED: "reopened", LAST_CHANCE: "lastchance" }[stage] || "published";
