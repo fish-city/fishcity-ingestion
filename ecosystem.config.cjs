@@ -83,6 +83,25 @@ module.exports = {
       retain: 5
     },
 
+    // ── Freedom / 22nd Street Landing Notifications (hourly, 7am–9pm) ─────
+    {
+      name: "fc-freedom-notify",
+      script: "pipelines/partner_schedules/freedom_ingest.js",
+      cron_restart: "0 7-21 * * *",
+      autorestart: false,
+      watch: false,
+      max_memory_restart: "256M",
+      env: {
+        NODE_ENV: "development"
+      },
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      error_file: "logs/freedom-notify-error.log",
+      out_file: "logs/freedom-notify-out.log",
+      merge_logs: true,
+      max_size: "10M",
+      retain: 5
+    },
+
     // ── Dashboard (always-on, serves tracking UI + send log) ─────────────
     {
       name: "fc-dashboard",
